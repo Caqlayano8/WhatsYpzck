@@ -1,0 +1,24 @@
+{
+   "compilerOptions": {
+      "lib": [
+         "es5",
+         "es6",
+         "dom",
+      ],
+      "target": "es6",
+      "module": "commonjs",
+      "moduleResolution": "node",
+      "outDir": "dist",
+      "baseUrl": "/",
+      "emitDecoratorMetadata": true,
+      "experimentalDecorators": true,
+      "sourceMap": true,
+      "esModuleInterop": true,
+      "skipLibCheck": true,
+   },
+   "exclude": [
+      "archive",
+      "dist",
+      "node_modules"
+   ]
+}

@@ -1,0 +1,14 @@
+﻿services:
+  app:
+    build: .
+    image: caqlayanWhatsYpzck/WhatsYpzck:latest
+    container_name: WhatsYpzck
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    networks:
+      - WhatsYpzck
+
+networks:
+  WhatsYpzck:
+    driver: bridge

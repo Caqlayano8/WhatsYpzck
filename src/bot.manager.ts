@@ -1,0 +1,2119 @@
+﻿/**
+ * Author: Ç.Kurtoğlu
+ * Description: Bot manager - WhatsApp mesaj yönetimi ve komut işleme
+ */
+
+import WAWebJS, { Client, Message, MessageMedia, MessageTypes } from "whatsapp-web.js";
+import axios from "axios";
+import { AppConfig } from "./configs/app.config";
+import { ClientConfig } from "./configs/client.config";
+import EnvConfig from "./configs/env.config";
+import logger from "./configs/logger.config";
+import { UserI18n } from "./utils/content/i18n.util";
+import commands from "./commands";
+import { onboard } from "./utils/content/onboarding.util";
+import { ContactModel } from "./crm/models/contact.model";
+import { SettingsModel } from "./crm/models/settings.model";
+import { MessageModel } from "./crm/models/message.model";
+import { ScoreRuleModel } from "./crm/models/score-rule.model";
+import { CampaignModel } from "./crm/models/campaign.model";
+import { messageEmitter } from "./utils/events/message-emitter.util";
+import { AutoReplyModel } from "./crm/models/auto-reply.model";
+import { IncidentModel } from "./crm/models/incident.model";
+import { fireEvent } from "./utils/events/fire-event.util";
+import { claudeCompletion } from "./utils/ai/claude.util";
+import { FlowModel } from "./crm/models/flow.model";
+import { FlowSessionModel } from "./crm/models/flow-session.model";
+import { ollamaChat } from "./utils/ai/ollama.util";
+import { getInternetContext, shouldUseInternetLookup } from "./utils/ai/internet-search.util";
+import { getRelevantMemoryContext, saveInteractionMemory } from "./utils/ai/interaction-memory.util";
+const qrcode = require('qrcode-terminal');
+const fs = require('fs');
+const path = require('path');
+
+// Per-contact auto-reply cooldown: phone → last triggered timestamp
+const autoReplyCooldown = new Map<string, Map<string, Date>>();
+
+async function applyScore(phoneNumber: string, action: string) {
+    try {
+        const rule = await ScoreRuleModel.findOne({ action, enabled: true }).lean();
+        if (rule) {
+            await ContactModel.updateOne({ phoneNumber }, { $inc: { score: rule.points } });
+        }
+    } catch (_) { /* non-critical */ }
+}
+
+export class BotManager {
+    private static instance: BotManager;
+    public client: any;
+    public qrData = {
+        qrCodeData: "",
+        qrScanned: false,
+        authenticated: false
+    };
+    private userI18nCache = new Map<string, UserI18n>();
+    private aiConversationState = new Map<string, {
+        active: boolean;
+        history: string[];
+        infoProvided: boolean;
+        dispatchDone: boolean;
+        incidentFlow?: {
+            active: boolean;
+            awaiting: "name" | "phone" | "address" | "meter" | "email" | "confirm";
+            data: {
+                customerName: string;
+                customerPhone: string;
+                address: string;
+                meterNo: string;
+                customerEmail: string;
+            };
+        };
+        statusFlow?: {
+            active: boolean;
+            awaiting: "name" | "phone" | "incidentId";
+            data: {
+                customerName: string;
+                customerPhone: string;
+                incidentId: string;
+            };
+        };
+    }>();
+    private prefix = AppConfig.instance.getBotPrefix();
+    private processedMessageIds = new Map<string, number>();
+    private perPhoneQueue = new Map<string, Promise<void>>();
+    private aiInflight = 0;
+    private aiWaitQueue: Array<() => void> = [];
+    private readonly maxAiConcurrency = Math.max(1, Number(process.env.AI_MAX_CONCURRENCY || 2));
+    private readonly maxAiQueueSize = Math.max(1, Number(process.env.AI_MAX_QUEUE_SIZE || 30));
+    private readonly aiHybridEnabled = String(process.env.AI_HYBRID_ENABLED || "true").toLowerCase() !== "false";
+    private readonly aiHybridTriggerInflight = Math.max(1, Number(process.env.AI_HYBRID_TRIGGER_INFLIGHT || 3));
+    private readonly aiHybridTriggerQueue = Math.max(0, Number(process.env.AI_HYBRID_TRIGGER_QUEUE || 1));
+    private aiReplyCache = new Map<string, { reply: string; expiresAt: number }>();
+    private readonly aiReplyCacheTtlMs = Math.max(0, Number(process.env.AI_REPLY_CACHE_TTL_MS || 45000));
+
+    private async runInPhoneQueue<T>(phoneNumber: string, task: () => Promise<T>): Promise<T> {
+        const prev = this.perPhoneQueue.get(phoneNumber) || Promise.resolve();
+        let release: () => void = () => {};
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+
+        const next = prev.then(() => gate, () => gate);
+        this.perPhoneQueue.set(phoneNumber, next);
+
+        await prev;
+        try {
+            return await task();
+        } finally {
+            release();
+            await next.catch(() => undefined);
+            const current = this.perPhoneQueue.get(phoneNumber);
+            if (current === next) {
+                this.perPhoneQueue.delete(phoneNumber);
+            }
+        }
+    }
+
+    private getCachedAiReply(cacheKey: string): string | null {
+        const cached = this.aiReplyCache.get(cacheKey);
+        if (!cached) return null;
+        if (cached.expiresAt <= Date.now()) {
+            this.aiReplyCache.delete(cacheKey);
+            return null;
+        }
+        return cached.reply;
+    }
+
+    private setCachedAiReply(cacheKey: string, reply: string) {
+        if (this.aiReplyCacheTtlMs <= 0) return;
+        this.aiReplyCache.set(cacheKey, {
+            reply,
+            expiresAt: Date.now() + this.aiReplyCacheTtlMs
+        });
+
+        if (this.aiReplyCache.size > 500) {
+            const now = Date.now();
+            for (const [key, value] of this.aiReplyCache.entries()) {
+                if (value.expiresAt <= now) {
+                    this.aiReplyCache.delete(key);
+                }
+            }
+        }
+    }
+
+    private async runWithAiConcurrencyLimit<T>(task: () => Promise<T>): Promise<T> {
+        if (this.aiInflight >= this.maxAiConcurrency) {
+            if (this.aiWaitQueue.length >= this.maxAiQueueSize) {
+                throw new Error("AI_QUEUE_FULL");
+            }
+
+            await new Promise<void>((resolve) => {
+                this.aiWaitQueue.push(resolve);
+            });
+        }
+
+        this.aiInflight += 1;
+        try {
+            return await task();
+        } finally {
+            this.aiInflight = Math.max(0, this.aiInflight - 1);
+            const next = this.aiWaitQueue.shift();
+            if (next) next();
+        }
+    }
+
+    private shouldUseHybridFallback(): boolean {
+        if (!this.aiHybridEnabled) return false;
+        return this.aiInflight >= this.aiHybridTriggerInflight || this.aiWaitQueue.length >= this.aiHybridTriggerQueue;
+    }
+
+    private pushAiHistory(aiState: { history: string[] }, userText: string, assistantText: string) {
+        aiState.history.push(`Kullanici: ${String(userText || "").slice(0, 180)}`);
+        aiState.history.push(`Temsilci: ${String(assistantText || "").slice(0, 220)}`);
+        if (aiState.history.length > 8) {
+            aiState.history = aiState.history.slice(-8);
+        }
+    }
+
+    private buildHybridQuickReply(text: string, infoProvided: boolean): string {
+        if (this.isOutageComplaint(text)) {
+            return this.applyEmojiPolicy(
+                this.normalizeInstitutionalLanguage(this.buildOutageReply(!infoProvided))
+            );
+        }
+
+        if (infoProvided) {
+            return "Mesajinizi aldim. Su an yogunluk var; detayli yaniti kisa bir sure icinde iletecegim.";
+        }
+
+        return "Mesajinizi aldim. Su an yogunluk var; once hizli on yanit veriyorum. Detayli yanit birazdan gelecek.";
+    }
+
+    private async composeAiReply(text: string, prompt: string, systemPrompt: string): Promise<{ aiReply: string; aiReplyBase: string }> {
+        let webContext = "";
+        let webSourceLinks: string[] = [];
+        let memoryContext = "";
+        const webLookupEnabled = String(process.env.AI_WEB_LOOKUP_ENABLED || "true").toLowerCase() !== "false";
+
+        if (webLookupEnabled && shouldUseInternetLookup(text)) {
+            const webLookup = await getInternetContext(text);
+            webContext = webLookup.context;
+            webSourceLinks = webLookup.sourceLinks;
+        }
+
+        memoryContext = getRelevantMemoryContext(text, 3);
+
+        const promptPieces = [prompt];
+        if (memoryContext) {
+            promptPieces.push(
+                "",
+                "Gecmis etkileşim hafizasi (daha tutarli cevap icin):",
+                memoryContext
+            );
+        }
+        if (webContext) {
+            promptPieces.push(
+                "",
+                "Internetten cekilen baglam (ozet, dogrulama gerektirebilir):",
+                webContext,
+                "",
+                "Yanitinda bu baglami dikkate al; emin olmadigin bilgiyi netce belirt."
+            );
+        }
+        const promptWithContext = promptPieces.join("\n");
+
+        const aiReplyRaw = await ollamaChat(promptWithContext, systemPrompt);
+        const aiReplyBase = this.applyEmojiPolicy(
+            this.normalizeInstitutionalLanguage(String(aiReplyRaw || "").trim())
+        );
+        const aiReply = this.appendSourceLinks(aiReplyBase, webSourceLinks);
+        return { aiReply, aiReplyBase };
+    }
+
+    private shouldSkipMessage(message: Message): boolean {
+        // Process only incoming user messages. Outgoing bot/user-self messages can cause reply loops.
+        if ((message as any).fromMe) {
+            return true;
+        }
+
+        const messageId = (message as any)?.id?._serialized;
+        if (!messageId) {
+            return false;
+        }
+
+        const now = Date.now();
+        const ttlMs = 5 * 60 * 1000;
+        const existing = this.processedMessageIds.get(messageId);
+        if (existing && (now - existing) < ttlMs) {
+            return true;
+        }
+
+        this.processedMessageIds.set(messageId, now);
+
+        // Opportunistic cleanup to keep memory stable.
+        if (this.processedMessageIds.size > 5000) {
+            for (const [key, ts] of this.processedMessageIds.entries()) {
+                if ((now - ts) > ttlMs) {
+                    this.processedMessageIds.delete(key);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private normalizeIntentToken(value: string): string {
+        return String(value || "")
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ş/g, "s")
+            .replace(/ö/g, "o")
+            .replace(/ç/g, "c")
+            .replace(/[^a-z0-9]/g, "")
+            .trim();
+    }
+
+    private resolveCommandAlias(token: string): string {
+        const normalized = this.normalizeIntentToken(token);
+        const aliases: Record<string, string> = {
+            merhaba: "merhaba",
+            selam: "merhaba",
+            selamlar: "merhaba",
+            hey: "merhaba",
+            sa: "merhaba",
+            slm: "merhaba",
+            gunaydin: "merhaba",
+            iyiaksamlar: "merhaba",
+            iyigunler: "merhaba"
+        };
+        return aliases[normalized] || normalized;
+    }
+
+    private normalizeInstitutionalLanguage(text: string): string {
+        return String(text || "")
+            .replace(/\bsenin\s+iyiyim\b/gi, "ben iyiyim")
+            .replace(/\bsenin\s+iyi\s+misin\b/gi, "ben iyiyim")
+            .replace(/te[sş]ekk[uü]r\s+ederim,?\s*senin\s+iyiyim/gi, "Teşekkür ederim, ben iyiyim")
+            .replace(/te[sş]ekk[uü]r\s+ederim,?\s*senin\s+yard[iı]m[ıi]n[ıi]\s+istedi[gğ]in\s+i[cç]in\.?/gi, "Size yardım edebilmek için buradayız.")
+            .replace(/senin\s+yard[iı]m[ıi]n[ıi]\s+istedi[gğ]in\s+i[cç]in\.?/gi, "Size yardım edebilmek için buradayız.")
+            .replace(/ne\s+kadar\s+elektrik\s+ar[iı]zas[ıi]\s+ya[sş][ıi]yorsunuz\??/gi, "Elektrik arızası hangi adreste ve ne zamandır devam ediyor?")
+            .replace(/\bburday[iı]z\b/gi, "buradayız")
+            .replace(/sizinle\s+ileti[sş]ime\s+ge[cç]ebilirsiniz/gi, "bizimle iletişime geçebilirsiniz")
+            .replace(/sizinle\s+ileti[sş]ime\s+ge[cç]in/gi, "bizimle iletişime geçin")
+            .replace(/sizinle\s+irtibata\s+ge[cç]ebilirsiniz/gi, "bizimle irtibata geçebilirsiniz")
+            .replace(/sizinle\s+irtibata\s+ge[cç]in/gi, "bizimle irtibata geçin")
+                .replace(/\bbana\b/gi, "bize")
+                .replace(/\bbeni\b/gi, "bizi")
+                .replace(/\bbenimle\b/gi, "bizimle")
+                .replace(/yard[iı]mc[iı]\s+olay[iı]m\s+m[iı]\??/gi, "yardımcı olalım mı?")
+                .replace(/yard[iı]m\s+edeyim\s+mi\??/gi, "yardım edelim mi?")
+                .replace(/benim\s+mahallemde\s+elektrik\s+kesintisi\s+mevcut\s+de[gğ]il\.?/gi, "Belirttiğiniz bölgede kesinti bilgisini teyit edebilmemiz için açık adresinizi paylaşmanızı rica ederiz.")
+                .replace(/t[uü]rkiye\s*'?nin\s*ba[sş]kenti\s*t[uü]rkistan(?:'d[ıi]r)?\.?/gi, "Türkiye'nin başkenti Ankara'dır.")
+            .replace(/\bsenin\b/gi, "sizin")
+            .replace(/\bsen\b/gi, "siz")
+            .trim();
+    }
+
+    private applyEmojiPolicy(text: string): string {
+        return String(text || "")
+            // Hearts (strictly forbidden)
+            .replace(/[❤️❤💖💗💓💞💕💘💝💟🫶]/gu, "")
+            // Angry emojis (strictly forbidden)
+            .replace(/[😠😡🤬👿💢]/gu, "")
+            // Cleanup extra spaces that may remain after emoji removal
+            .replace(/\s{2,}/g, " ")
+            .trim();
+    }
+
+    private appendSourceLinks(answer: string, sourceLinks: string[]): string {
+        const cleanedAnswer = String(answer || "").trim();
+        const links = Array.from(new Set((sourceLinks || []).map((url) => String(url || "").trim()).filter(Boolean))).slice(0, 3);
+        if (!links.length) {
+            return cleanedAnswer;
+        }
+
+        const sourceLines = links.map((url, idx) => `${idx + 1}. ${url}`).join("\n");
+        return `${cleanedAnswer}\n\nKaynaklar:\n${sourceLines}`;
+    }
+
+    private sanitizeMeterNo(value: string): string {
+        return String(value || "")
+            .trim()
+            .replace(/[.,;:!?]+$/g, "")
+            .replace(/\s+/g, "")
+            .replace(/^['"`]+|['"`]+$/g, "");
+    }
+
+    private isValidMeterNo(value: string): boolean {
+        const v = this.sanitizeMeterNo(value);
+        if (!v) return false;
+        if (/^(\+?90)?0?5\d{9}$/.test(v)) return false;
+        if (!/^[A-Za-z0-9-]{5,30}$/.test(v)) return false;
+        const digitCount = (v.match(/\d/g) || []).length;
+        const hasLetter = /[A-Za-z]/.test(v);
+        return digitCount >= 5 && (hasLetter || /^\d{5,20}$/.test(v));
+    }
+
+    private normalizeTurkishPhone(value: string): string | null {
+        const digits = String(value || "").replace(/\D/g, "");
+        if (!digits) return null;
+        if (digits.length === 10 && digits.startsWith("5")) return `90${digits}`;
+        if (digits.length === 11 && digits.startsWith("0") && digits[1] === "5") return `90${digits.slice(1)}`;
+        if (digits.length === 12 && digits.startsWith("90") && digits[2] === "5") return digits;
+        if (digits.length === 13 && digits.startsWith("0090") && digits[4] === "5") return digits.slice(2);
+        return null;
+    }
+
+    private isValidEmail(value: string): boolean {
+        const email = String(value || "").trim().toLowerCase();
+        if (!email || email.length > 254) return false;
+        return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email);
+    }
+
+    private isPositiveConfirmation(value: string): boolean {
+        const t = String(value || "").trim().toLowerCase();
+        return ["evet", "e", "onay", "onayliyorum", "dogru", "doğru", "tamam"].includes(t);
+    }
+
+    private buildIncidentSummaryText(data: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): string {
+        return [
+            "Bilgileri toplu olarak teyit eder misiniz?",
+            `Ad Soyad: ${data.customerName}`,
+            `Telefon: ${data.customerPhone}`,
+            `Adres: ${data.address}`,
+            `Tesisat/Sayac/Abone No: ${data.meterNo}`,
+            `E-Posta: ${data.customerEmail}`,
+            "Bilgiler dogruysa lutfen sadece 'evet' yazin.",
+            "Yanlis bilgi varsa duzeltmeyi yazarak gonderebilirsiniz."
+        ].join("\n");
+    }
+
+    private getFirstMissingIncidentField(data: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): "name" | "phone" | "address" | "meter" | "email" | "confirm" {
+        if (!data.customerName || data.customerName === "Bilinmiyor") return "name";
+        if (!data.customerPhone || data.customerPhone === "Bilinmiyor") return "phone";
+        if (!data.address || data.address === "Bilinmiyor") return "address";
+        if (!data.meterNo || data.meterNo === "Bilinmiyor") return "meter";
+        if (!data.customerEmail || data.customerEmail === "Bilinmiyor") return "email";
+        return "confirm";
+    }
+
+    private parseIncidentIntent(text: string): boolean {
+        const t = String(text || "").toLowerCase();
+        return /ar[ıi]za|kesinti|elektrik\s+yok|tesisat|sayac|saya[cç]|abone\s*no/.test(t);
+    }
+
+    private parseIncidentStatusIntent(text: string): boolean {
+        const t = String(text || "").toLowerCase();
+        return /ar[ıi]za.*durum|durum.*ar[ıi]za|ar[ıi]za\s*(kayd[ıi]|no|numara).*sorgu|ar[ıi]za\s*(sorgula|sorgulama)|kay[ıi]t\s*no.*(durum|sorgu)|ar[ıi]zam[ıi]n\s*durumu/.test(t);
+    }
+
+    private parseDateTimeIntent(text: string): boolean {
+        const t = String(text || "").toLowerCase();
+        return /(saat\s*(kac|kaç|nedir|ne)|kac\s*saat|kaç\s*saat|bugun\s*(tarih|hangi\s*gun)|bugun\s*gunlerden\s*ne|tarih\s*(nedir|ne)|tarih\s*saat|simdi\s*saat\s*kac|şimdi\s*saat\s*kaç)/.test(t);
+    }
+
+    private buildCurrentDateTimeReply(): string {
+        const now = new Date();
+        const dateText = now.toLocaleDateString("tr-TR", {
+            timeZone: "Europe/Istanbul",
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric"
+        });
+        const timeText = now.toLocaleTimeString("tr-TR", {
+            timeZone: "Europe/Istanbul",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        });
+
+        return `Anlik tarih/saat bilgisi (TR): ${dateText}, ${timeText}.`;
+    }
+
+    private normalizeIncidentId(value: string): string {
+        const raw = String(value || "").toUpperCase().trim();
+        const compact = raw.replace(/\s+/g, "");
+        if (/^ARZ-\d{6,}$/.test(compact)) return compact;
+        const digits = compact.replace(/\D/g, "");
+        if (digits.length >= 6) return `ARZ-${digits}`;
+        return "";
+    }
+
+    private incidentStatusText(status: string): string {
+        const map: Record<string, string> = {
+            ALINDI: "Kayit alindi",
+            INCELEMEDE: "Incelemede",
+            ISLEME_ALINDI: "Isleme alindi",
+            COZUMLENDI: "Cozumlendi",
+            KAPATILDI: "Kapatildi"
+        };
+        return map[String(status || "").toUpperCase()] || "Bilinmiyor";
+    }
+
+    private async processIncidentStatusFlow(message: Message, aiState: {
+        active: boolean;
+        history: string[];
+        infoProvided: boolean;
+        dispatchDone: boolean;
+        statusFlow?: {
+            active: boolean;
+            awaiting: "name" | "phone" | "incidentId";
+            data: { customerName: string; customerPhone: string; incidentId: string };
+        };
+    }, text: string): Promise<boolean> {
+        let justStarted = false;
+
+        if (!aiState.statusFlow?.active) {
+            if (!this.parseIncidentStatusIntent(text)) {
+                return false;
+            }
+            aiState.statusFlow = {
+                active: true,
+                awaiting: "name",
+                data: {
+                    customerName: "Bilinmiyor",
+                    customerPhone: "Bilinmiyor",
+                    incidentId: "Bilinmiyor"
+                }
+            };
+            justStarted = true;
+        }
+
+        const flow = aiState.statusFlow;
+        if (!flow) return false;
+
+        if (justStarted && flow.awaiting === "name") {
+            await message.reply("Ariza durumunu sorgulayabilmemiz icin lutfen adinizi ve soyadinizi yaziniz.");
+            return true;
+        }
+
+        if (flow.awaiting === "name") {
+            const name = String(text || "").trim();
+            if (name.length < 3 || !/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(name)) {
+                await message.reply("Ad soyad bilginizi kontrol ederek tekrar yaziniz. Ornek: Ahmet Yilmaz");
+                return true;
+            }
+            flow.data.customerName = name;
+            flow.awaiting = "phone";
+            await message.reply("Tesekkur ederiz. Simdi telefon numaranizi yaziniz. Ornek: 05XXXXXXXXX");
+            return true;
+        }
+
+        if (flow.awaiting === "phone") {
+            const normalizedPhone = this.normalizeTurkishPhone(text);
+            if (!normalizedPhone) {
+                await message.reply("Telefon numarasi gecersiz görunuyor. Lutfen 05XXXXXXXXX formatinda tekrar yaziniz.");
+                return true;
+            }
+            flow.data.customerPhone = normalizedPhone;
+            flow.awaiting = "incidentId";
+            await message.reply("Lutfen ariza kayit numaranizi yaziniz. Ornek: ARZ-1773396737967");
+            return true;
+        }
+
+        if (flow.awaiting === "incidentId") {
+            const incidentId = this.normalizeIncidentId(text);
+            if (!incidentId) {
+                await message.reply("Ariza kayit numarasi gecersiz görunuyor. Lutfen ARZ- ile baslayan kayit noyu tekrar yaziniz.");
+                return true;
+            }
+            flow.data.incidentId = incidentId;
+
+            const escapedName = String(flow.data.customerName || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const record = await IncidentModel.findOne({
+                incidentId,
+                customerPhone: flow.data.customerPhone,
+                customerName: { $regex: `^${escapedName}$`, $options: 'i' }
+            }).lean() as any;
+
+            flow.active = false;
+
+            if (!record) {
+                await message.reply("Belirttiginiz bilgilerle eslesen bir ariza kaydi bulunamadi. Lutfen ad soyad, telefon ve kayit numaranizi kontrol ederek tekrar deneyiniz.");
+                return true;
+            }
+
+            await message.reply([
+                "*ARIZA DURUM BILGISI*",
+                `Kayit No: ${record.incidentId}`,
+                `Durum: ${this.incidentStatusText(record.status)}`,
+                `Olusturma Zamani: ${new Date(record.createdAt).toLocaleString('tr-TR')}`,
+                `Son Guncelleme: ${new Date(record.updatedAt).toLocaleString('tr-TR')}`,
+                `Adres: ${record.address || 'Bilinmiyor'}`,
+                `Tesisat/Sayac No: ${record.meterNo || 'Bilinmiyor'}`
+            ].join("\n"));
+            return true;
+        }
+
+        return false;
+    }
+
+    private mergeIncidentData(base: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }, incoming: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }) {
+        return {
+            customerName: incoming.customerName !== "Bilinmiyor" ? incoming.customerName : base.customerName,
+            customerPhone: incoming.customerPhone !== "Bilinmiyor" ? incoming.customerPhone : base.customerPhone,
+            address: incoming.address !== "Bilinmiyor" ? incoming.address : base.address,
+            meterNo: incoming.meterNo !== "Bilinmiyor" ? incoming.meterNo : base.meterNo,
+            customerEmail: incoming.customerEmail !== "Bilinmiyor" ? incoming.customerEmail : base.customerEmail
+        };
+    }
+
+    private async processIncidentFlow(message: Message, phoneNumber: string, aiState: {
+        active: boolean;
+        history: string[];
+        infoProvided: boolean;
+        dispatchDone: boolean;
+        incidentFlow?: {
+            active: boolean;
+            awaiting: "name" | "phone" | "address" | "meter" | "email" | "confirm";
+            data: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string };
+        };
+    }, text: string): Promise<boolean> {
+        let justStarted = false;
+
+        if (!aiState.incidentFlow?.active) {
+            const shouldStart = this.parseIncidentIntent(text) || this.hasContactInfo(text) || this.isOutageComplaint(text);
+            if (!shouldStart || aiState.dispatchDone) {
+                return false;
+            }
+
+            aiState.incidentFlow = {
+                active: true,
+                awaiting: "name",
+                data: {
+                    customerName: "Bilinmiyor",
+                    customerPhone: "Bilinmiyor",
+                    address: "Bilinmiyor",
+                    meterNo: "Bilinmiyor",
+                    customerEmail: "Bilinmiyor"
+                }
+            };
+            justStarted = true;
+        }
+
+        const flow = aiState.incidentFlow;
+        if (!flow) {
+            return false;
+        }
+
+        if (justStarted) {
+            if (flow.awaiting === "confirm") {
+                await message.reply(this.buildIncidentSummaryText(flow.data));
+                return true;
+            }
+            if (flow.awaiting === "name") {
+                await message.reply("Kayit olusturmak icin once adinizi ve soyadinizi yazar misiniz?");
+                return true;
+            }
+            if (flow.awaiting === "phone") {
+                await message.reply("Lutfen telefon numaranizi yazin. Ornek: 05XXXXXXXXX");
+                return true;
+            }
+            if (flow.awaiting === "address") {
+                await message.reply("Lutfen acik adresinizi yazin.");
+                return true;
+            }
+            if (flow.awaiting === "email") {
+                await message.reply("Lutfen e-posta adresinizi yazin. Ornek: ad.soyad@example.com");
+                return true;
+            }
+            await message.reply("Lutfen tesisat no veya sayac no veya abone no bilginizi yazin.");
+            return true;
+        }
+
+        if (flow.awaiting === "confirm") {
+            if (this.isPositiveConfirmation(text)) {
+                const dispatched = await this.dispatchIncidentWithParsed(message, phoneNumber, flow.data);
+                aiState.dispatchDone = dispatched;
+                flow.active = false;
+                aiState.infoProvided = true;
+                if (dispatched) {
+                    await message.reply("Tesekkur ederiz. Kaydiniz olusturuldu ve ilgili numaraya/eposta adresine gonderildi.");
+                } else {
+                    await message.reply("Kaydiniz olusturuldu ancak su an yonlendirme yapilamadi. Sistem ayarlari kontrol edilmelidir.");
+                }
+                return true;
+            }
+            flow.data = {
+                customerName: "Bilinmiyor",
+                customerPhone: "Bilinmiyor",
+                address: "Bilinmiyor",
+                meterNo: "Bilinmiyor",
+                customerEmail: "Bilinmiyor"
+            };
+            flow.awaiting = "name";
+            await message.reply("Tamam, bilgileri bastan alalim. Lutfen adinizi ve soyadinizi yazin.");
+            return true;
+        }
+
+        if (flow.awaiting === "name") {
+            const trimmed = String(text || "").trim();
+            if (trimmed.length < 3 || !/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(trimmed)) {
+                await message.reply("Ad soyad bilgisini tekrar yazar misiniz? Ornek: Ahmet Yilmaz");
+                return true;
+            }
+            flow.data.customerName = trimmed;
+            flow.awaiting = "phone";
+            await message.reply("Tesekkurler. Simdi telefon numaranizi yazin. Ornek: 05XXXXXXXXX");
+            return true;
+        }
+
+        if (flow.awaiting === "phone") {
+            const normalizedPhone = this.normalizeTurkishPhone(text);
+            if (!normalizedPhone) {
+                await message.reply("Telefon numarasi gecersiz görunuyor. Lutfen 05XXXXXXXXX formatinda tekrar yazin.");
+                return true;
+            }
+            flow.data.customerPhone = normalizedPhone;
+            flow.awaiting = "address";
+            await message.reply("Tesekkurler. Simdi acik adresinizi yazin.");
+            return true;
+        }
+
+        if (flow.awaiting === "address") {
+            const addr = String(text || "").trim();
+            if (addr.length < 8) {
+                await message.reply("Adres bilgisini daha acik yazmanizi rica ederiz.");
+                return true;
+            }
+            flow.data.address = addr;
+            flow.awaiting = "meter";
+            await message.reply("Tesekkurler. Simdi tesisat no veya sayac no veya abone no bilginizi yazin.");
+            return true;
+        }
+
+        if (flow.awaiting === "meter") {
+            const meter = this.sanitizeMeterNo(text);
+            if (!this.isValidMeterNo(meter)) {
+                await message.reply("Tesisat/Sayac/Abone no bilgisini kontrol edip tekrar yazar misiniz?");
+                return true;
+            }
+            flow.data.meterNo = meter;
+            flow.awaiting = "email";
+            await message.reply("Tesekkurler. Simdi e-posta adresinizi yazin. Ornek: ad.soyad@example.com");
+            return true;
+        }
+
+        if (flow.awaiting === "email") {
+            const email = String(text || "").trim().toLowerCase();
+            if (!this.isValidEmail(email)) {
+                await message.reply("E-posta adresi gecersiz görunuyor. Lutfen gecerli bir e-posta yazin. Ornek: ad.soyad@example.com");
+                return true;
+            }
+            flow.data.customerEmail = email;
+            flow.awaiting = "confirm";
+            aiState.infoProvided = true;
+            await message.reply(this.buildIncidentSummaryText(flow.data));
+            return true;
+        }
+
+        return false;
+    }
+
+    private parseIncidentData(text: string, fallbackName: string, fallbackPhone: string) {
+        const src = String(text || "");
+
+        // --- Telefon ---
+        const phoneMatch = src.match(/(\+?90\s*)?(\(?0?5\d{2}\)?[\s.-]*)\d{3}[\s.-]*\d{2}[\s.-]*\d{2}|\b0?5\d{9}\b/);
+
+        // --- Anahtar kelimeli eşleşmeler ---
+        const nameMatch = src.match(/(?:^|[\n,;])\s*(?:ad\s*soyad|isim|ad)\s*[:\-]?\s*([^\n,;]+)/i);
+        const addressMatch = src.match(/(?:^|[\n,;])\s*adres\s*[:\-]?\s*([^\n]+)/i);
+        const meterMatch = src.match(/(?:^|[\n,;])\s*(?:tesisat|tesi[sş]at|sayac|saya[cç]|abone)\s*(?:no|numara(?:s[ıi])?)?\s*[:\-]?\s*([A-Za-z0-9\-]{5,30})/i);
+
+        let address = addressMatch?.[1]?.trim() || "";
+        let meterNo = this.isValidMeterNo(meterMatch?.[1] || "") ? this.sanitizeMeterNo(meterMatch?.[1] || "") : "";
+        let inferredName = nameMatch?.[1]?.trim() || "";
+
+        // --- Anahtar kelime yoksa virgüllü/satırlı serbest formattan çıkar ---
+        if (!address || !meterNo || !inferredName) {
+            // Parçalara ayır: virgül, noktalı virgül veya satır sonu
+            const parts = src.split(/[,،;\n]+/).map(p => p.trim()).filter(Boolean);
+
+            // Tesisat/sayaç numarası: harflerle başlayan, ardından rakam gelen kısa kod (TBR-251435, TRX-778899 vb.)
+            const meterCodePattern = /^(?=.{5,30}$)(?!((\+?90)?0?5\d{9})$)[A-Za-z0-9-]+$/;
+
+            if (!inferredName && parts.length) {
+                const first = parts[0];
+                const firstDigits = first.replace(/\D/g, "");
+                const looksLikePhone = /^(\+?90)?0?5\d{9}$/.test(first.replace(/[\s\-().]/g, ""));
+                const looksLikeMeter = meterCodePattern.test(first.replace(/\s+/g, ""));
+                if (!looksLikePhone && !looksLikeMeter && /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(first) && firstDigits.length < 5) {
+                    inferredName = first;
+                }
+            }
+
+            if (!meterNo) {
+                const explicitMeterLine = src.match(/(?:tesisat|tesi[sş]at|sayac|saya[cç]|abone)\s*(?:no|numara(?:s[ıi])?)?\s*[:\-]?\s*([A-Za-z0-9\-]{5,30})/i);
+                if (explicitMeterLine && this.isValidMeterNo(explicitMeterLine[1])) {
+                    meterNo = this.sanitizeMeterNo(explicitMeterLine[1]);
+                }
+            }
+
+            if (!meterNo) {
+                const meterToken = [...parts]
+                    .reverse()
+                    .find(p => {
+                        const candidate = this.sanitizeMeterNo(p);
+                        return meterCodePattern.test(candidate) && this.isValidMeterNo(candidate);
+                    });
+                if (meterToken) {
+                    meterNo = this.sanitizeMeterNo(meterToken);
+                }
+            }
+
+            if (!address) {
+                // Adres ipucu: mahalle/sokak/cadde/no gibi kelimeler içeren, telefon veya sayaç olmayan parça
+                const addrToken = parts.find(p => {
+                    const lc = p.toLowerCase();
+                    const hasAddrKeyword = /mahalle|mah\b|sokak|sok\b|cadde|cad\b|bulvar|blv\b|köy|koy|\bno\b|\bkat\b|daire|apartman|sitesi/i.test(lc);
+                    const isPhone = /^(\+?90)?0?5\d{8,}$/.test(p.replace(/[\s\-().]/g, ""));
+                    const isMeter = meterCodePattern.test(p.replace(/\s+/g, ""));
+                    return hasAddrKeyword && !isPhone && !isMeter;
+                });
+                if (addrToken) {
+                    address = addrToken.trim();
+                }
+            }
+
+            if (!address && parts.length >= 3) {
+                // Yaygin format: ad, telefon, adres, tesisat
+                const maybeAddress = parts[2];
+                const isMeter = meterCodePattern.test(maybeAddress.replace(/\s+/g, ""));
+                if (!isMeter) {
+                    address = maybeAddress.trim();
+                }
+            }
+
+            // Son çare: telefon ve sayaç dışındaki en uzun parça adresi olabilir
+            if (!address) {
+                const candidate = parts
+                    .filter(p => {
+                        const isPhone = /^(\+?90)?0?5\d{8,}$/.test(p.replace(/[\s\-().]/g, ""));
+                        const isMeter = meterCodePattern.test(p.replace(/\s+/g, ""));
+                        const isName  = p === fallbackName || (nameMatch?.[1] && p.includes(nameMatch[1].trim()));
+                        return !isPhone && !isMeter && !isName && p.length > 6;
+                    })
+                    .sort((a, b) => b.length - a.length)[0];
+                if (candidate) {
+                    address = candidate.trim();
+                }
+            }
+        }
+
+        const invalidNamePattern = /elektrik|ariza|sorun|talep|destek|yardim|\?/i;
+        if (!inferredName || invalidNamePattern.test(inferredName)) {
+            inferredName = fallbackName || "Bilinmiyor";
+        }
+
+        const emailMatch = src.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+        const normalizedEmail = emailMatch?.[0]?.trim().toLowerCase() || "";
+
+        return {
+            customerName: inferredName.trim(),
+            customerPhone: this.normalizeTurkishPhone(phoneMatch?.[0] || "") || this.normalizeTurkishPhone(fallbackPhone) || "Bilinmiyor",
+            address: address || "Bilinmiyor",
+            meterNo: meterNo || "Bilinmiyor",
+            customerEmail: this.isValidEmail(normalizedEmail) ? normalizedEmail : "Bilinmiyor"
+        };
+    }
+
+    private csvEscape(value: string): string {
+        const v = String(value ?? "");
+        if (/[",\n]/.test(v)) {
+            return `"${v.replace(/"/g, '""')}"`;
+        }
+        return v;
+    }
+
+    private toWhatsAppChatId(raw: string): string | null {
+        const value = String(raw || "").trim();
+        if (!value) return null;
+
+        // If user already provided a full JID, use it directly.
+        if (/@c\.us$|@g\.us$/i.test(value)) {
+            return value;
+        }
+
+        let digits = value.replace(/\D/g, "");
+        if (!digits) return null;
+
+        // Normalize common TR formats:
+        // 0545xxxxxxx -> 90545xxxxxxx
+        // 545xxxxxxx  -> 90545xxxxxxx
+        // 0090545...  -> 90545...
+        if (digits.startsWith("00")) {
+            digits = digits.slice(2);
+        }
+        if (digits.length === 11 && digits.startsWith("0")) {
+            digits = `90${digits.slice(1)}`;
+        } else if (digits.length === 10 && digits.startsWith("5")) {
+            digits = `90${digits}`;
+        }
+
+        return `${digits}@c.us`;
+    }
+
+    private async sendIncidentEmailViaGraph(
+        subject: string,
+        bodyText: string,
+        recipients: string,
+        attachment?: { filePath: string; fileName: string; contentType?: string }
+    ): Promise<boolean> {
+        const tenantId = EnvConfig.M365_TENANT_ID;
+        const clientId = EnvConfig.M365_CLIENT_ID;
+        const clientSecret = EnvConfig.M365_CLIENT_SECRET;
+        const senderUpn = EnvConfig.M365_SENDER_UPN || EnvConfig.SMTP_USER;
+
+        if (!tenantId || !clientId || !clientSecret || !senderUpn) {
+            logger.warn("Graph mail atlandi: M365 tenant/client bilgileri eksik.");
+            return false;
+        }
+
+        const toRecipients = recipients
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+            .map((address) => ({ emailAddress: { address } }));
+
+        if (!toRecipients.length) {
+            return false;
+        }
+
+        const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+        const tokenBody = new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            scope: "https://graph.microsoft.com/.default",
+            grant_type: "client_credentials"
+        });
+
+        const tokenResp = await axios.post(tokenUrl, tokenBody.toString(), {
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            timeout: 20000
+        });
+
+        const accessToken = tokenResp.data?.access_token;
+        if (!accessToken) {
+            throw new Error("Graph access token alinamadi.");
+        }
+
+        const attachments: any[] = [];
+        if (attachment?.filePath && attachment?.fileName) {
+            const fileBase64 = fs.readFileSync(attachment.filePath).toString('base64');
+            attachments.push({
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                name: attachment.fileName,
+                contentType: attachment.contentType || "application/octet-stream",
+                contentBytes: fileBase64
+            });
+        }
+
+        const payload = {
+            message: {
+                subject,
+                body: {
+                    contentType: "Text",
+                    content: bodyText
+                },
+                toRecipients,
+                ...(attachments.length ? { attachments } : {})
+            },
+            saveToSentItems: false
+        };
+
+        await axios.post(
+            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(senderUpn)}/sendMail`,
+            payload,
+            {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json"
+                },
+                timeout: 30000
+            }
+        );
+
+        return true;
+    }
+
+    private async dispatchIncidentWithParsed(message: Message, phoneNumber: string, parsed: {
+        customerName: string;
+        customerPhone: string;
+        address: string;
+        meterNo: string;
+        customerEmail: string;
+    }): Promise<boolean> {
+        const settings = await SettingsModel.findOne().lean() as any;
+        const routing = settings?.incidentRouting || {};
+        const envWhatsApp = String(process.env.ARIZA_TEAM_WHATSAPP || "").trim();
+        const envEmails = String(process.env.ARIZA_TEAM_EMAILS || "")
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean);
+
+        const configuredWhatsApp = Array.isArray(routing.whatsappNumbers)
+            ? routing.whatsappNumbers.map((v: string) => String(v || '').trim()).filter(Boolean)
+            : [];
+        const configuredEmails = Array.isArray(routing.emails)
+            ? routing.emails.map((v: string) => String(v || '').trim()).filter(Boolean)
+            : [];
+
+        const allWhatsAppTargets = Array.from(new Set([envWhatsApp, ...configuredWhatsApp].filter(Boolean)));
+        const allEmailTargets = Array.from(new Set([...envEmails, ...configuredEmails].filter(Boolean)));
+
+        const incidentId = `ARZ-${Date.now()}`;
+        const createdAt = new Date();
+        const issueSummary = "Elektrik arizasi bildirimi";
+
+        const incidentDoc = await IncidentModel.create({
+            incidentId,
+            customerName: parsed.customerName,
+            customerPhone: parsed.customerPhone,
+            customerEmail: parsed.customerEmail,
+            address: parsed.address,
+            meterNo: parsed.meterNo,
+            issueSummary,
+            sourcePhoneNumber: phoneNumber,
+            status: 'ALINDI',
+            statusHistory: [{
+                status: 'ALINDI',
+                note: 'Kayit olusturuldu',
+                at: createdAt
+            }],
+            notifications: {
+                teamWhatsAppSent: false,
+                teamEmailSent: false,
+                customerEmailSent: false,
+                lastError: ''
+            }
+        });
+
+        const summaryMessage = [
+            "*YENI ARIZA BILDIRIMI*",
+            `Kayit No: ${incidentId}`,
+            `Musteri Ismi: ${parsed.customerName}`,
+            `Telefon: ${parsed.customerPhone}`,
+            `Adres: ${parsed.address}`,
+            `Tesisat/Sayac No: ${parsed.meterNo}`,
+            `Musteri E-Posta: ${parsed.customerEmail}`,
+            `Imza: ${AppConfig.instance.getBotAuthor()}`,
+            `Talep: ${issueSummary}`,
+            `Olusturma Zamani: ${createdAt.toLocaleString('tr-TR')}`
+        ].join("\n");
+
+        const reportsDir = path.join("public", "reports", "incidents");
+        if (!fs.existsSync(reportsDir)) {
+            fs.mkdirSync(reportsDir, { recursive: true });
+        }
+
+        const fileName = `${incidentId}.csv`;
+        const filePath = path.join(reportsDir, fileName);
+        const csvHeader = ["KayitNo", "Tarih", "MusteriIsmi", "Telefon", "MusteriEposta", "Adres", "TesisatSayacNo", "Imza", "Talep", "KaynakNumara"].join(",");
+        const csvRow = [
+            this.csvEscape(incidentId),
+            this.csvEscape(createdAt.toISOString()),
+            this.csvEscape(parsed.customerName),
+            this.csvEscape(parsed.customerPhone),
+            this.csvEscape(parsed.customerEmail),
+            this.csvEscape(parsed.address),
+            this.csvEscape(parsed.meterNo),
+            this.csvEscape(AppConfig.instance.getBotAuthor()),
+            this.csvEscape(issueSummary),
+            this.csvEscape(phoneNumber)
+        ].join(",");
+        fs.writeFileSync(filePath, `${csvHeader}\n${csvRow}\n`, "utf8");
+
+        let sentAny = false;
+        let teamWhatsAppSent = false;
+        let teamEmailSent = false;
+        let customerEmailSent = false;
+        let lastError = "";
+
+        for (const target of allWhatsAppTargets) {
+            const teamChatId = this.toWhatsAppChatId(target);
+            if (!teamChatId) continue;
+            try {
+                await this.client.sendMessage(teamChatId, summaryMessage);
+                const csvMedia = MessageMedia.fromFilePath(filePath);
+                await this.client.sendMessage(teamChatId, csvMedia, { caption: `Ariza raporu (Excel uyumlu CSV): ${incidentId}` });
+                sentAny = true;
+                teamWhatsAppSent = true;
+            } catch (err) {
+                logger.error("Ariza bildirimi WhatsApp ekibine gonderilemedi:", err);
+                lastError = String((err as any)?.message || err || "");
+            }
+        }
+
+        const smtpDb = settings?.smtp || {};
+        const smtp = {
+            host: smtpDb.host || EnvConfig.SMTP_HOST,
+            port: smtpDb.port || Number(EnvConfig.SMTP_PORT || 587),
+            secure: typeof smtpDb.secure === 'boolean' ? smtpDb.secure : String(EnvConfig.SMTP_SECURE || 'false').toLowerCase() === 'true',
+            user: smtpDb.user || EnvConfig.SMTP_USER,
+            pass: smtpDb.pass || EnvConfig.SMTP_PASS,
+            fromName: smtpDb.fromName || EnvConfig.SMTP_FROM_NAME || 'WhatsYpzck',
+            fromEmail: smtpDb.fromEmail || EnvConfig.SMTP_FROM_EMAIL || ''
+        };
+
+        const sendEmailWithFallback = async (
+            subject: string,
+            textBody: string,
+            recipients: string,
+            attachment?: { filePath: string; fileName: string; contentType?: string }
+        ): Promise<boolean> => {
+            if (!recipients.trim()) return false;
+
+            if (smtp?.host && smtp?.user && smtp?.pass) {
+                try {
+                    const nodemailer = await import('nodemailer');
+                    const transporter = nodemailer.default.createTransport({
+                        host: smtp.host,
+                        port: smtp.port || 587,
+                        secure: smtp.secure || false,
+                        auth: { user: smtp.user, pass: smtp.pass }
+                    });
+
+                    const from = smtp.fromEmail
+                        ? `"${smtp.fromName || 'WhatsYpzck'}" <${smtp.fromEmail}>`
+                        : smtp.user;
+
+                    await transporter.sendMail({
+                        from,
+                        to: recipients,
+                        subject,
+                        text: textBody,
+                        ...(attachment
+                            ? {
+                                attachments: [
+                                    {
+                                        filename: attachment.fileName,
+                                        path: attachment.filePath,
+                                        contentType: attachment.contentType || 'application/octet-stream'
+                                    }
+                                ]
+                            }
+                            : {})
+                    });
+                    return true;
+                } catch (smtpErr) {
+                    logger.error("Ariza mail gonderimi SMTP ile basarisiz, Graph denenecek:", smtpErr);
+                }
+            } else {
+                logger.warn("Ariza mail gonderimi SMTP atlandi: SMTP ayarlari eksik. Graph denenecek.");
+            }
+
+            try {
+                return await this.sendIncidentEmailViaGraph(subject, textBody, recipients, attachment);
+            } catch (graphErr) {
+                logger.error("Ariza mail gonderimi Graph ile de basarisiz:", graphErr);
+                return false;
+            }
+        };
+
+        if (allEmailTargets.length) {
+            const teamEmailRecipients = allEmailTargets.join(',');
+            const teamMailSent = await sendEmailWithFallback(
+                `[Ariza] ${incidentId} - ${parsed.customerName}`,
+                summaryMessage,
+                teamEmailRecipients,
+                { filePath, fileName, contentType: 'text/csv' }
+            );
+            if (teamMailSent) {
+                sentAny = true;
+                teamEmailSent = true;
+            }
+        }
+
+        if (this.isValidEmail(parsed.customerEmail)) {
+            const notificationTemplates = settings?.notificationTemplates || {};
+            const institutionName = String(
+                notificationTemplates.institutionName || process.env.INCIDENT_MAIL_INSTITUTION || "Coruh EDAS Artvin Il Mudurlugu"
+            ).trim();
+            const signatureName = String(
+                notificationTemplates.signatureName || AppConfig.instance.getBotAuthor()
+            ).trim();
+            const closingLine = String(
+                notificationTemplates.closingLine || process.env.INCIDENT_MAIL_CLOSING || "Bilgilerinize sunar, iyi gunler dileriz."
+            ).trim();
+            const createdEmailTemplate = String(
+                notificationTemplates.createdEmailTemplate ||
+                "Sayin Musterimiz,\n\nElektrik ariza bildiriminiz sistemimize basariyla kaydedilmistir.\nAsagida basvurunuza ait bilgiler yer almaktadir:\n\nKayit No: {{incidentId}}\nMusteri Ismi: {{customerName}}\nTelefon: {{customerPhone}}\nE-Posta: {{customerEmail}}\nAdres: {{address}}\nTesisat/Sayac No: {{meterNo}}\nOlusturma Zamani: {{createdAt}}\n\nBelirtmis oldugunuz ariza bildirimi yukaridaki gibidir. Lutfen bu bilgileri saklayiniz.\nDaha sonra bu bilgiler uzerinden ariza kaydinizi sorgulayabilirsiniz.\n\n{{closingLine}}\n{{institutionName}}\nYetkili: {{signatureName}}"
+            );
+
+            const customerMailBody = createdEmailTemplate
+                .replace(/\{\{\s*incidentId\s*\}\}/g, incidentId)
+                .replace(/\{\{\s*customerName\s*\}\}/g, parsed.customerName)
+                .replace(/\{\{\s*customerPhone\s*\}\}/g, parsed.customerPhone)
+                .replace(/\{\{\s*customerEmail\s*\}\}/g, parsed.customerEmail)
+                .replace(/\{\{\s*address\s*\}\}/g, parsed.address)
+                .replace(/\{\{\s*meterNo\s*\}\}/g, parsed.meterNo)
+                .replace(/\{\{\s*createdAt\s*\}\}/g, createdAt.toLocaleString('tr-TR'))
+                .replace(/\{\{\s*closingLine\s*\}\}/g, closingLine)
+                .replace(/\{\{\s*institutionName\s*\}\}/g, institutionName)
+                .replace(/\{\{\s*signatureName\s*\}\}/g, signatureName)
+                .replace(/\{\{\s*signature\s*\}\}/g, signatureName)
+                .replace(/\n{3,}/g, "\n\n")
+                .trim();
+
+            const customerMailSent = await sendEmailWithFallback(
+                `Ariza Bildiriminiz Alinmistir - ${incidentId}`,
+                customerMailBody,
+                parsed.customerEmail
+            );
+            if (customerMailSent) {
+                sentAny = true;
+                customerEmailSent = true;
+            }
+        }
+
+        if (!allWhatsAppTargets.length && !allEmailTargets.length) {
+            logger.warn("Ariza yonlendirmesi icin alici tanimli degil. ARIZA_TEAM_WHATSAPP veya ARIZA_TEAM_EMAILS ayarlayin.");
+        }
+
+        try {
+            incidentDoc.notifications = {
+                teamWhatsAppSent,
+                teamEmailSent,
+                customerEmailSent,
+                lastError
+            };
+            await incidentDoc.save();
+        } catch (incidentSaveErr) {
+            logger.error("Ariza kaydi bildirim alanlari guncellenemedi:", incidentSaveErr);
+        }
+
+        return sentAny;
+    }
+
+    private async dispatchIncident(message: Message, phoneNumber: string, userText: string, history: string[]): Promise<boolean> {
+        const contact = await message.getContact();
+        const fallbackName = contact?.pushname || contact?.name || "Bilinmiyor";
+        const parsedCurrent = this.parseIncidentData(userText, fallbackName, phoneNumber);
+        const parsedHistory = this.parseIncidentData(history.join("\n"), fallbackName, phoneNumber);
+        const parsed = this.mergeIncidentData(parsedHistory, parsedCurrent);
+        return this.dispatchIncidentWithParsed(message, phoneNumber, parsed);
+    }
+
+    private hasContactInfo(text: string): boolean {
+        const t = (text || "").toLowerCase();
+        const hasPhone = /(\+?90\s*)?(\(?0?5\d{2}\)?[\s.-]*)\d{3}[\s.-]*\d{2}[\s.-]*\d{2}|\b0?5\d{9}\b/.test(t);
+        const hasAddressHint = /adres|mahalle|sokak|cadde|no\b|daire|apartman/.test(t);
+        const hasNameHint = /ad\s*soyad|ben\s+[a-zçğıöşü]+\s+[a-zçğıöşü]+/i.test(text || "");
+        const hasMeterHint = /tesisat|sayac|abone\s*no|tesisat\s*no/.test(t);
+
+        // Accept as provided when user gives at least two strong signals.
+        const score = Number(hasPhone) + Number(hasAddressHint) + Number(hasNameHint) + Number(hasMeterHint);
+        return score >= 2;
+    }
+
+    private isOutageComplaint(text: string): boolean {
+        const t = String(text || "").toLowerCase();
+        return /elektrik\s+(kesintisi|yok|gitti)|kesinti\s+var|ar[ıi]za\s+var|mahallemde\s+elektrik/.test(t);
+    }
+
+    private buildOutageReply(needsInfo: boolean): string {
+        if (needsInfo) {
+            return [
+                "Yaşadığınız elektrik kesintisi için üzgünüz.",
+                "Kaydı doğru şekilde oluşturabilmemiz için lütfen şu bilgileri paylaşır mısınız:",
+                "Ad Soyad, Telefon, Açık Adres (mahalle/sokak/no) ve varsa Tesisat/Sayaç No."
+            ].join(" ");
+        }
+
+        return "Teşekkür ederiz, paylaştığınız bilgiler alındı. Arıza kaydınızı öncelikli olarak işleme alıyoruz ve gelişmeleri size ileteceğiz.";
+    }
+
+    private normalizeCorporateAiReply(rawReply: string, infoProvided: boolean = false): string {
+        const infoTemplate = [
+            "Ad Soyad: Ali Veli",
+            "Telefon: 0555 111 22 33",
+            "Adres: Ankara Çankaya Atatürk Cad No:10",
+            "Tesisat No: TRX-778899",
+            "Elektrik kesintisi var"
+        ].join("\n");
+
+        const clean = String(rawReply || "")
+            .replace(/\r/g, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+
+        const sanitizeField = (value: string): string => {
+            const v = String(value || "")
+                .replace(/^(Durum|Yap[iı]lacak\s*I[sş]lem|Aksiyon|Gerekli\s*Bilgi|Sizden\s*Istenen|Sonraki\s*Ad[iı]m)\s*:\s*/i, "")
+                .replace(/\baptalama\b/gi, "tespit")
+                .replace(/elektrik\s+ağınızı\s+kontrol\s+edin\s+veya\s+bir\s+ar[iı]za\s+bildirin\.?/gi, "Elektrik arızanızı bildirin.")
+                .replace(/\s+/g, " ")
+                .trim();
+            return v;
+        };
+
+        const hasDurum = /(^|\n)\s*Durum\s*:/i.test(clean);
+        const hasIslem = /(^|\n)\s*(Yap[iı]lacak\s*I[sş]lem|Aksiyon)\s*:/i.test(clean);
+        const hasBilgi = /(^|\n)\s*(Gerekli\s*Bilgi|Sizden\s*Istenen)\s*:/i.test(clean);
+        const hasSonraki = /(^|\n)\s*Sonraki\s*Ad[iı]m\s*:/i.test(clean);
+
+        const extractSection = (labelPattern: string): string => {
+            const rx = new RegExp(`(?:^|\\n)\\s*${labelPattern}\\s*:\\s*(.+?)(?=\\n\\s*[A-Za-zÇĞİÖŞÜçğıöşü ]+\\s*:|$)`, "is");
+            const match = clean.match(rx);
+            return match?.[1]?.replace(/\s+/g, " ").trim() || "";
+        };
+
+        let durum = "";
+        let islem = "";
+        let bilgi = "";
+        let sonraki = "";
+
+        if (hasDurum && hasIslem && hasBilgi && hasSonraki) {
+            durum = extractSection("Durum");
+            islem = extractSection("Yap[iı]lacak\\s*I[sş]lem|Aksiyon");
+            bilgi = extractSection("Gerekli\\s*Bilgi|Sizden\\s*Istenen");
+            sonraki = extractSection("Sonraki\\s*Ad[iı]m");
+        } else {
+            const lines = clean.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+            durum = lines[0] || "Talebinizi aldik ve durum degerlendirmesi baslatildi.";
+            islem = lines[1] || "Bolge kontrolu ve gerekli teknik yonlendirme icin kayit olusturuyoruz.";
+            bilgi = "Ad soyad, telefon, acik adres ve tesisat/sayac numaranizi paylasmanizi rica ederiz.";
+            sonraki = "Bilgileriniz ulasinca kaydinizi tamamlayip gelismeleri tarafiniza iletecegiz.";
+        }
+
+        durum = sanitizeField(durum);
+        islem = sanitizeField(islem);
+        bilgi = sanitizeField(bilgi);
+        sonraki = sanitizeField(sonraki);
+
+        if (infoProvided) {
+            durum = "Bilgileriniz icin tesekkur ederiz.";
+            islem = "Gec donus icin ozur dileriz. Ariza kaydiniz oncelikli olarak isleme alinmistir.";
+            bilgi = "Ek bir bilgi gerekmemektedir.";
+            sonraki = "Ekiplerimiz en kisa surede mudahale edecek ve size donus saglayacaktir.";
+        } else {
+            bilgi = infoTemplate;
+        }
+
+        return [
+            "*KURUMSAL DESTEK YANITI*",
+            `*Durum:* ${durum}`,
+            `*Yapilacak Islem:* ${islem}`,
+            `*Gerekli Bilgi:* ${bilgi}`,
+            `*Sonraki Adim:* ${sonraki}`
+        ].join("\n\n");
+    }
+
+    private constructor() {
+        this.client = new Client(ClientConfig);
+        this.setupEventHandlers();
+    }
+
+    public static getInstance(): BotManager {
+        if (!BotManager.instance) {
+            BotManager.instance = new BotManager();
+        }
+        return BotManager.instance;
+    }
+
+    private setupEventHandlers() {
+        console.log("Setting up event handlers...");
+        this.client.on('ready', this.handleReady.bind(this));
+        this.client.on('authenticated', this.handleAuthenticated.bind(this));
+        this.client.on('auth_failure', this.handleAuthFailure.bind(this));
+        this.client.on('qr', this.handleQr.bind(this));
+        this.client.on('message', this.handleMessage.bind(this));
+        this.client.on('disconnected', this.handleDisconnect.bind(this));
+    }
+
+
+    private async handleReady() {
+        this.qrData.qrScanned = true;
+        this.qrData.authenticated = true;
+        logger.info("Client is ready!");
+    }
+
+    private handleAuthenticated() {
+        logger.info('Client authenticated successfully!');
+        this.qrData.authenticated = true;
+        this.qrData.qrScanned = true;
+    }
+
+    private handleAuthFailure(message: string) {
+        logger.error('Authentication failed:', message);
+        this.qrData.authenticated = false;
+        this.qrData.qrScanned = false;
+        this.qrData.qrCodeData = "";
+    }
+
+    private handleQr(qr: string) {
+        logger.info('QR RECEIVED');
+        this.qrData.qrCodeData = qr;
+        this.qrData.qrScanned = false;
+        this.qrData.authenticated = false;
+        console.log(qr);
+        qrcode.generate(qr, { small: true });
+    }
+
+    private handleDisconnect(reason: string) {
+        logger.info(`Client disconnected: ${reason}`);
+        this.qrData.qrScanned = false;
+        this.qrData.authenticated = false;
+        this.qrData.qrCodeData = "";
+
+        setTimeout(() => {
+            logger.info('Attempting to reconnect...');
+            this.client.initialize();
+        }, 5000);
+    }
+
+    public initialize() {
+        try {
+            this.client.initialize();
+        } catch (error) {
+            logger.error(`Client initialization error: ${error}`);
+        }
+    }
+
+    public getStatus(): { status: string; phone?: string; pushName?: string; qrCode?: string; uptime: number } {
+        const info = this.client?.info;
+        if (info) {
+            return {
+                status: 'connected',
+                phone: info.wid?.user,
+                pushName: info.pushname,
+                uptime: process.uptime()
+            };
+        }
+        if (this.qrData.qrCodeData && !this.qrData.qrScanned) {
+            return { status: 'scanning', qrCode: this.qrData.qrCodeData, uptime: process.uptime() };
+        }
+        return { status: 'disconnected', uptime: process.uptime() };
+    }
+
+    public async reconnect(): Promise<void> {
+        try {
+            this.qrData.qrScanned = false;
+            this.qrData.authenticated = false;
+            this.qrData.qrCodeData = '';
+            await this.client.destroy();
+        } catch (_) { /* ignore destroy errors */ }
+        setTimeout(() => {
+            logger.info('Reconnecting client...');
+            this.client.initialize();
+        }, 1000);
+    }
+
+    private async trackContact(user: WAWebJS.Contact, _message: Message, userI18n: UserI18n) {
+        try {
+            const existing = await ContactModel.findOne({ phoneNumber: user.number }).lean();
+            const isNew = !existing;
+
+            await ContactModel.findOneAndUpdate(
+                { phoneNumber: user.number },
+                {
+                    $set: {
+                        name: user.name || user.pushname,
+                        pushName: user.pushname,
+                        language: userI18n.getLanguage(),
+                        lastInteraction: new Date()
+                    },
+                    $inc: { interactionsCount: 1 }
+                },
+                { upsert: true, new: true }
+            );
+
+            if (isNew) {
+                await applyScore(user.number, 'first_interaction');
+                fireEvent('contact.new', { phoneNumber: user.number, name: user.name || user.pushname }).catch(() => {});
+            }
+            await applyScore(user.number, 'message_received');
+        } catch (error) {
+            logger.error('Failed to track contact:', error);
+        }
+    }
+
+    private async handleMessage(message: Message) {
+        let chat = null;
+        let userI18n: UserI18n;
+
+        if (this.shouldSkipMessage(message)) {
+            return;
+        }
+
+        const content = message.body?.trim() || "";
+
+        if (AppConfig.instance.getSupportedMessageTypes().indexOf(message.type) === -1) {
+            return;
+        }
+
+        try {
+            const user = await message.getContact();
+            logger.info(`Message from @${user.pushname} (${user.number}): ${content}`);
+
+            if (!user || !user.number) {
+                return;
+            }
+
+            userI18n = this.getUserI18n(user.number);
+
+            if (!user.isMe) await this.trackContact(user, message, userI18n);
+            chat = await message.getChat();
+
+            if (message.from === this.client.info.wid._serialized || message.isStatus) {
+                return;
+            }
+
+            // Persist incoming message for inbox
+            if (!user.isMe) {
+                const inboxBody = content || (message.type === MessageTypes.VOICE ? '[Voice message]' : '[Empty message]');
+                const inboxType = message.type === MessageTypes.TEXT ? 'text' : 'other';
+                const isGroup = chat?.isGroup ?? false;
+                const msgDoc = await MessageModel.create({
+                    phoneNumber: user.number,
+                    body: inboxBody,
+                    type: inboxType,
+                    direction: 'in',
+                    sentVia: 'whatsapp',
+                    read: false,
+                    timestamp: new Date(),
+                    isGroup,
+                    groupId: isGroup ? message.from : undefined,
+                    senderName: isGroup ? (user.pushname || user.name || user.number) : undefined,
+                });
+                messageEmitter.emit('message', msgDoc.toObject());
+
+                // Fire integration event
+                fireEvent('message.received', { phoneNumber: user.number, body: inboxBody }).catch(() => {});
+
+                // Track campaign reply (mark first unacknowledged delivery for this phone)
+                const updated = await CampaignModel.updateOne(
+                    {
+                        'deliveryReport.phone': user.number,
+                        'deliveryReport.status': 'sent',
+                        'deliveryReport.repliedAt': { $exists: false }
+                    },
+                    { $set: { 'deliveryReport.$.repliedAt': new Date() } }
+                );
+                if (updated.modifiedCount > 0) {
+                    await applyScore(user.number, 'campaign_reply');
+                }
+
+                // Check auto-reply rules
+                const replied = await this.checkAutoReply(user.number, content, chat);
+                if (replied) return;
+
+                // Check active flows
+                const flowHandled = await this.executeFlow(user.number, content, chat);
+                if (flowHandled) return;
+            }
+
+            const results = await Promise.allSettled([
+                onboard(message, userI18n),
+                this.runInPhoneQueue(user.number, async () => {
+                    await this.processMessageContent(message, content, userI18n, chat);
+                })
+            ]);
+
+            if (results[0].status === 'rejected') {
+                logger.warn('Onboarding failed but message processing continued:', results[0].reason);
+            }
+
+            if (results[1].status === 'rejected') {
+                throw results[1].reason;
+            }
+
+        } catch (error) {
+            logger.error(`Message handling error: ${error}`);
+            if (chat) {
+                const errorMessage = userI18n?.t('errorOccurred') || 'An error occurred';
+                chat.sendMessage(`> 🤖 ${errorMessage}`);
+            }
+        } finally {
+            if (chat) await chat.clearState();
+        }
+    }
+
+    private getUserI18n(userNumber: string): UserI18n {
+        if (!this.userI18nCache.has(userNumber)) {
+            const userI18n = new UserI18n(userNumber);
+            this.userI18nCache.set(userNumber, userI18n);
+            logger.info(`New user detected: ${userNumber} (${userI18n.getLanguage()})`);
+        }
+        return this.userI18nCache.get(userNumber)!;
+    }
+
+    private async processMessageContent(message: Message, content: string, userI18n: UserI18n, chat: any) {
+        if (message.type === MessageTypes.TEXT) {
+            await this.handleTextMessage(message, content, userI18n, chat);
+        }
+    }
+
+    private async checkAutoReply(phoneNumber: string, content: string, chat: any): Promise<boolean> {
+        try {
+            const rules = await AutoReplyModel.find({ enabled: true }).sort({ priority: -1 }).lean();
+            for (const rule of rules) {
+                // Cooldown check
+                const cooldownKey = String(rule._id);
+                const phoneCooldowns = autoReplyCooldown.get(phoneNumber);
+                if (phoneCooldowns) {
+                    const lastTriggered = phoneCooldowns.get(cooldownKey);
+                    if (lastTriggered) {
+                        const elapsedMs = Date.now() - lastTriggered.getTime();
+                        if (elapsedMs < rule.cooldownMinutes * 60 * 1000) continue;
+                    }
+                }
+
+                // Match check
+                const lc = content.toLowerCase();
+                const trigger = rule.trigger.toLowerCase();
+                let matched = false;
+                if (rule.matchType === 'exact') matched = lc === trigger;
+                else if (rule.matchType === 'contains') matched = lc.includes(trigger);
+                else if (rule.matchType === 'startsWith') matched = lc.startsWith(trigger);
+                else if (rule.matchType === 'regex') {
+                    try { matched = new RegExp(rule.trigger, 'i').test(content); } catch { matched = false; }
+                }
+
+                if (!matched) continue;
+
+                let replyText = rule.response;
+
+                if (rule.useAI && rule.aiProvider !== 'none') {
+                    try {
+                        if (rule.aiProvider === 'openai') {
+                            const { default: OpenAI } = await import('openai');
+                            const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                            const completion = await client.chat.completions.create({
+                                model: 'gpt-4o-mini',
+                                messages: [
+                                    { role: 'system', content: rule.aiPrompt || 'You are a helpful WhatsApp assistant. Reply briefly.' },
+                                    { role: 'user', content }
+                                ],
+                                max_tokens: 300
+                            });
+                            replyText = completion.choices[0]?.message?.content || rule.response;
+                        } else if (rule.aiProvider === 'gemini') {
+                            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+                            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+                            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+                            const result = await model.generateContent(`${rule.aiPrompt}\n\nUser: ${content}`);
+                            replyText = result.response.text() || rule.response;
+                        } else if (rule.aiProvider === 'claude') {
+                            const result = await claudeCompletion(
+                                content,
+                                rule.aiPrompt || 'You are a helpful WhatsApp assistant. Reply briefly.'
+                            );
+                            replyText = result?.content?.find((item: any) => item.type === 'text')?.text || rule.response;
+                        }
+                    } catch (aiErr) {
+                        logger.warn('Auto-reply AI generation failed, using static response:', aiErr);
+                        replyText = rule.response;
+                    }
+                }
+
+                if (replyText) {
+                    await chat.sendMessage(replyText);
+                    // Update cooldown
+                    if (!autoReplyCooldown.has(phoneNumber)) autoReplyCooldown.set(phoneNumber, new Map());
+                    autoReplyCooldown.get(phoneNumber)!.set(cooldownKey, new Date());
+                    fireEvent('autoreply.triggered', { phoneNumber, rule: rule.name, trigger: rule.trigger }).catch(() => {});
+                    return true;
+                }
+            }
+        } catch (err) {
+            logger.error('checkAutoReply error:', err);
+        }
+        return false;
+    }
+
+    // ─── Flow Execution Engine ────────────────────────────────────────────────
+
+    private async executeFlow(phoneNumber: string, content: string, chat: any): Promise<boolean> {
+        try {
+            // 1. Check for active session
+            const session = await FlowSessionModel.findOne({ phoneNumber, status: 'active' })
+                .populate<{ flowId: any }>('flowId')
+                .exec();
+
+            if (session && session.flowId) {
+                const flow = session.flowId;
+
+                // Clear expired delay
+                if (session.resumeAt && new Date() < session.resumeAt) {
+                    session.resumeAt = undefined;
+                }
+
+                if (session.waitingForReply) {
+                    // Store the reply in the named variable
+                    if (session.pendingVariable) {
+                        session.variables.set(session.pendingVariable, content);
+                    }
+                    session.waitingForReply = false;
+                    session.pendingVariable = '';
+
+                    // Advance to the next node connected from the question's output
+                    const nextEdge = flow.edges.find((e: any) => e.source === session.currentNodeId && e.sourceHandle === 'out');
+                    if (!nextEdge) { await this.endFlowSession(session); return true; }
+                    const nextNode = flow.nodes.find((n: any) => n.id === nextEdge.target);
+                    if (!nextNode) { await this.endFlowSession(session); return true; }
+
+                    session.currentNodeId = nextNode.id;
+                    session.lastActivityAt = new Date();
+                    await session.save();
+                    await this.runFlowNode(session, nextNode, flow, chat);
+                    return true;
+                }
+                // Active session but not waiting — shouldn't block normal messages
+                return false;
+            }
+
+            // 2. No active session — match published flows by trigger
+            const flows = await FlowModel.find({ status: 'published' }).lean();
+            for (const flow of flows) {
+                const trigger = flow.trigger;
+                let matches = false;
+
+                if (trigger.type === 'any_message') {
+                    matches = true;
+                } else if (trigger.type === 'keyword') {
+                    const lc = content.toLowerCase().trim();
+                    matches = (trigger.keywords || []).some(kw => lc === kw.toLowerCase().trim() || lc.startsWith(kw.toLowerCase().trim() + ' '));
+                } else if (trigger.type === 'first_contact') {
+                    const contact = await ContactModel.findOne({ phoneNumber }).lean();
+                    matches = !contact || (contact as any).interactionsCount <= 1;
+                } else if (trigger.type === 'campaign_reply') {
+                    const campaign = await CampaignModel.findOne({ 'deliveryReport.phone': phoneNumber, 'deliveryReport.status': 'sent' }).lean();
+                    matches = !!campaign;
+                } else if (trigger.type === 'tag_applied') {
+                    const contact = await ContactModel.findOne({ phoneNumber }).lean();
+                    matches = !!(contact as any)?.tags?.includes(trigger.tagName);
+                }
+
+                if (!matches) continue;
+
+                const triggerNode = flow.nodes.find(n => n.type === 'trigger');
+                if (!triggerNode) continue;
+
+                const newSession = await FlowSessionModel.create({
+                    phoneNumber,
+                    flowId: flow._id,
+                    currentNodeId: triggerNode.id,
+                    variables: {},
+                    waitingForReply: false,
+                    pendingVariable: '',
+                    status: 'active',
+                    startedAt: new Date(),
+                    lastActivityAt: new Date(),
+                });
+                await FlowModel.updateOne({ _id: flow._id }, { $inc: { 'stats.activations': 1 } });
+                await this.runFlowNode(newSession, triggerNode, flow as any, chat);
+                return true;
+            }
+        } catch (err) {
+            logger.error('Flow execution error:', err);
+        }
+        return false;
+    }
+
+    private async runFlowNode(session: any, node: any, flow: any, chat: any, depth = 0): Promise<void> {
+        if (depth > 20) { await this.endFlowSession(session); return; } // guard against loops
+
+        const vars = Object.fromEntries(session.variables as Map<string, string>);
+        const contact = await ContactModel.findOne({ phoneNumber: session.phoneNumber }).lean() as any;
+        const ctx: Record<string, string> = {
+            name:  contact?.name || contact?.pushName || 'Friend',
+            phone: session.phoneNumber,
+            ...vars,
+        };
+        const resolve = (text: string) =>
+            (text || '').replace(/\{\{(\w+)(?:\|([^}]*))?\}\}/g, (_: string, k: string, fb: string) => ctx[k] || fb || '');
+
+        const advance = async (handle = 'out') => {
+            const edge = flow.edges.find((e: any) => e.source === node.id && e.sourceHandle === handle);
+            if (!edge) { await this.endFlowSession(session); return; }
+            const nextNode = flow.nodes.find((n: any) => n.id === edge.target);
+            if (!nextNode) { await this.endFlowSession(session); return; }
+            session.currentNodeId = nextNode.id;
+            session.lastActivityAt = new Date();
+            await session.save();
+            await this.runFlowNode(session, nextNode, flow, chat, depth + 1);
+        };
+
+        try {
+            switch (node.type) {
+                case 'trigger':
+                    await advance('out');
+                    break;
+
+                case 'message': {
+                    const text = resolve(node.data.text || '');
+                    if (text) await chat.sendMessage(text);
+                    await advance('out');
+                    break;
+                }
+
+                case 'question': {
+                    const text = resolve(node.data.text || '');
+                    if (text) await chat.sendMessage(text);
+                    session.waitingForReply = true;
+                    session.pendingVariable = node.data.variable || 'answer';
+                    session.lastActivityAt = new Date();
+                    await session.save();
+                    break; // wait for reply — DO NOT advance
+                }
+
+                case 'condition': {
+                    const actual   = ctx[node.data.variable || ''] || '';
+                    const expected = resolve(node.data.value || '');
+                    const op       = node.data.operator || 'equals';
+                    let result = false;
+                    if (op === 'equals')      result = actual.toLowerCase() === expected.toLowerCase();
+                    else if (op === 'contains')    result = actual.toLowerCase().includes(expected.toLowerCase());
+                    else if (op === 'starts_with') result = actual.toLowerCase().startsWith(expected.toLowerCase());
+                    else if (op === 'not_empty')   result = actual.trim() !== '';
+                    else if (op === 'is_empty')    result = actual.trim() === '';
+                    await advance(result ? 'yes' : 'no');
+                    break;
+                }
+
+                case 'tag': {
+                    const tag    = node.data.tag || '';
+                    const action = node.data.action || 'add';
+                    if (tag) {
+                        if (action === 'add') await ContactModel.updateOne({ phoneNumber: session.phoneNumber }, { $addToSet: { tags: tag } });
+                        else                   await ContactModel.updateOne({ phoneNumber: session.phoneNumber }, { $pull:    { tags: tag } });
+                    }
+                    await advance('out');
+                    break;
+                }
+
+                case 'delay': {
+                    const secs = (parseInt(node.data.seconds) || 0) + (parseInt(node.data.minutes) || 0) * 60;
+                    if (secs > 0 && secs <= 60) {
+                        await new Promise(r => setTimeout(r, secs * 1000));
+                    } else if (secs > 60) {
+                        session.resumeAt = new Date(Date.now() + secs * 1000);
+                        await session.save();
+                    }
+                    await advance('out');
+                    break;
+                }
+
+                case 'set_variable': {
+                    const varName = node.data.variable || '';
+                    const value   = resolve(node.data.value || '');
+                    if (varName) session.variables.set(varName, value);
+                    await advance('out');
+                    break;
+                }
+
+                case 'score': {
+                    const pts = parseInt(node.data.points) || 0;
+                    if (pts !== 0) await ContactModel.updateOne({ phoneNumber: session.phoneNumber }, { $inc: { score: pts } });
+                    await advance('out');
+                    break;
+                }
+
+                case 'transfer': {
+                    const note = node.data.note ? resolve(node.data.note) : null;
+                    if (note) await chat.sendMessage(`ℹ️ ${note}`);
+                    await ContactModel.updateOne({ phoneNumber: session.phoneNumber }, { $addToSet: { tags: 'transfer-requested' } });
+                    await this.endFlowSession(session);
+                    break;
+                }
+
+                case 'jump': {
+                    const targetFlow = await FlowModel.findById(node.data.flowId).lean();
+                    if (targetFlow) {
+                        const tNode = targetFlow.nodes.find((n: any) => n.type === 'trigger');
+                        if (tNode) {
+                            session.flowId = targetFlow._id;
+                            session.currentNodeId = tNode.id;
+                            await session.save();
+                            await FlowModel.updateOne({ _id: targetFlow._id }, { $inc: { 'stats.activations': 1 } });
+                            await this.runFlowNode(session, tNode, targetFlow as any, chat, depth + 1);
+                            return;
+                        }
+                    }
+                    await this.endFlowSession(session);
+                    break;
+                }
+
+                case 'end':
+                default: {
+                    const text = node.data.text ? resolve(node.data.text) : null;
+                    if (text) await chat.sendMessage(text);
+                    await this.endFlowSession(session);
+                    break;
+                }
+            }
+        } catch (err) {
+            logger.error(`runFlowNode error (type=${node.type}):`, err);
+            await this.endFlowSession(session);
+        }
+    }
+
+    private async endFlowSession(session: any): Promise<void> {
+        session.status = 'completed';
+        session.lastActivityAt = new Date();
+        await session.save();
+        await FlowModel.updateOne({ _id: session.flowId }, { $inc: { 'stats.completions': 1 } });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async handleTextMessage(message: Message, content: string, userI18n: UserI18n, chat: any) {
+        const phoneNumber = message.from.split('@')[0];
+        const text = content.trim();
+
+        let command: string | undefined;
+        let args: string[] = [];
+
+        // Check if message starts with prefix
+        if (content.startsWith(this.prefix)) {
+            const parts = content.slice(this.prefix.length).trim().split(/ +/);
+            const first = parts.shift() || "";
+            command = this.resolveCommandAlias(first);
+            args = parts;
+        } else {
+            // Check if the first word is a valid command name (without prefix)
+            const parts = content.trim().split(/ +/);
+            const firstWord = this.resolveCommandAlias(parts[0]);
+            
+            if (firstWord in commands) {
+                command = firstWord;
+                args = parts.slice(1);
+            }
+        }
+
+        if (command && command in commands) {
+            const settings = await SettingsModel.findOne().lean();
+            if (settings?.disabledCommands?.includes(command)) {
+                chat.sendMessage(`> 🤖 ${userI18n.t('unknownCommand', { command, prefix: this.prefix })}`);
+                return;
+            }
+            if (chat) await chat.sendStateTyping();
+            await commands[command].run(message, args, userI18n);
+            if (command === "merhaba") {
+                this.aiConversationState.set(phoneNumber, {
+                    active: true,
+                    history: [],
+                    infoProvided: false,
+                    dispatchDone: false,
+                    incidentFlow: {
+                        active: false,
+                        awaiting: "name",
+                        data: {
+                            customerName: "Bilinmiyor",
+                            customerPhone: "Bilinmiyor",
+                            address: "Bilinmiyor",
+                            meterNo: "Bilinmiyor",
+                            customerEmail: "Bilinmiyor"
+                        }
+                    },
+                    statusFlow: {
+                        active: false,
+                        awaiting: "name",
+                        data: {
+                            customerName: "Bilinmiyor",
+                            customerPhone: "Bilinmiyor",
+                            incidentId: "Bilinmiyor"
+                        }
+                    }
+                });
+            }
+            applyScore(phoneNumber, 'command_used').catch(() => {});
+            SettingsModel.findOneAndUpdate(
+                {}, { $inc: { [`commandStats.${command}`]: 1 } }, { upsert: true }
+            ).catch(() => {});
+        } else if (text) {
+            let aiState = this.aiConversationState.get(phoneNumber);
+            if (!aiState) {
+                aiState = {
+                    active: true,
+                    history: [],
+                    infoProvided: false,
+                    dispatchDone: false,
+                    incidentFlow: {
+                        active: false,
+                        awaiting: "name",
+                        data: {
+                            customerName: "Bilinmiyor",
+                            customerPhone: "Bilinmiyor",
+                            address: "Bilinmiyor",
+                            meterNo: "Bilinmiyor",
+                            customerEmail: "Bilinmiyor"
+                        }
+                    },
+                    statusFlow: {
+                        active: false,
+                        awaiting: "name",
+                        data: {
+                            customerName: "Bilinmiyor",
+                            customerPhone: "Bilinmiyor",
+                            incidentId: "Bilinmiyor"
+                        }
+                    }
+                };
+                this.aiConversationState.set(phoneNumber, aiState);
+            }
+            if (aiState?.active) {
+                if (chat) await chat.sendStateTyping();
+
+                if (this.parseDateTimeIntent(text)) {
+                    const nowReply = this.buildCurrentDateTimeReply();
+                    await message.reply(nowReply);
+                    aiState.history.push(`Kullanici: ${text.slice(0, 180)}`);
+                    aiState.history.push(`Temsilci: ${nowReply.slice(0, 220)}`);
+                    if (aiState.history.length > 8) {
+                        aiState.history = aiState.history.slice(-8);
+                    }
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    return;
+                }
+
+                try {
+                    const statusFlowHandled = await this.processIncidentStatusFlow(message, aiState, text);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    if (statusFlowHandled) {
+                        return;
+                    }
+                } catch (statusFlowErr) {
+                    logger.error("Ariza durum sorgu akisi hatasi:", statusFlowErr);
+                }
+
+                try {
+                    const flowHandled = await this.processIncidentFlow(message, phoneNumber, aiState, text);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    if (flowHandled) {
+                        return;
+                    }
+                } catch (flowErr) {
+                    logger.error("Ariza bilgi toplama akisi hatasi:", flowErr);
+                }
+
+                if (!aiState.infoProvided && this.hasContactInfo(text)) {
+                    aiState.infoProvided = true;
+                }
+
+                if (aiState.infoProvided && !aiState.dispatchDone) {
+                    try {
+                        const dispatched = await this.dispatchIncident(message, phoneNumber, text, aiState.history);
+                        aiState.dispatchDone = dispatched || aiState.dispatchDone;
+                    } catch (dispatchErr) {
+                        logger.error("Ariza yonlendirme akisi hatasi:", dispatchErr);
+                    }
+                }
+
+                // Deterministic guardrail for outage complaints to avoid nonsensical responses.
+                if (this.isOutageComplaint(text)) {
+                    const stableReply = this.applyEmojiPolicy(
+                        this.normalizeInstitutionalLanguage(this.buildOutageReply(!aiState.infoProvided))
+                    );
+                    await message.reply(stableReply);
+                    saveInteractionMemory(text, stableReply);
+                    aiState.history.push(`Kullanici: ${text.slice(0, 180)}`);
+                    aiState.history.push(`Temsilci: ${stableReply.slice(0, 220)}`);
+                    if (aiState.history.length > 8) {
+                        aiState.history = aiState.history.slice(-8);
+                    }
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    return;
+                }
+
+                const historyText = aiState.history.length
+                    ? `\n\nKonu Geçmişi:\n${aiState.history.join("\n")}`
+                    : "";
+
+                const recentHistoryKey = aiState.history.slice(-4).join("|").slice(-500);
+                const aiCacheKey = `${phoneNumber}|${text.toLowerCase()}|${recentHistoryKey}`;
+                const cachedAiReply = this.getCachedAiReply(aiCacheKey);
+                if (cachedAiReply) {
+                    await message.reply(cachedAiReply);
+                    this.pushAiHistory(aiState, text, cachedAiReply);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    return;
+                }
+
+                const systemPrompt = [
+                    "Sen Artvin Il Mudurlugu Coruh Edas'in samimi ve yardımsever destek asistanisin.",
+                    "Kendini insanmis gibi hisset; sicak, dogal ve rahat Turkce kullan.",
+                    "Faktuel/cografi bilgi verirken kesinlikle uydurma yapma; emin degilsen sadece 'Bilmiyorum' de.",
+                    "Turkiye, Turkistan, Turkmenistan gibi ulke adlarini asla karistirma.",
+                    "Turkiye'nin baskenti Ankara'dir.",
+                    "'Nasilsin', 'iyi misin', 'gunaydin' gibi gundelik selasmalar geldiginde ictenlikle karsilik ver, iyiyim de, tesekkur eder gibi.",
+                    "Sohbet konusuna gore cevap ver; her seyi elektrik arizasina baglamaya calisma.",
+                    "Elektrik kesintisi, ariza veya resmi talep gelirse o zaman kayit icin bilgileri iste.",
+                    "Cevaplar dogal ve kisa olsun (1-4 cumle), sanki mesajlasan bir insan gibi.",
+                    "Kalip, sema veya sabit format kullanma; her soruya o soruya ozel cevap ver.",
+                    "Bilmedigin konularda 'Bunu bilemiyorum ama ...' diyebilirsin, uydurmak zorunda degilsin.",
+                    "Emoji kullanabilirsin ama abartma."
+                ].join("\n");
+
+                const prompt = [
+                    historyText,
+                    `Kullanici mesaji: ${text}`
+                ].join("\n").trim();
+
+                if (this.shouldUseHybridFallback()) {
+                    const quickReply = this.buildHybridQuickReply(text, aiState.infoProvided);
+                    await message.reply(quickReply);
+                    this.pushAiHistory(aiState, text, quickReply);
+                    this.aiConversationState.set(phoneNumber, aiState);
+
+                    void this.runWithAiConcurrencyLimit(async () => {
+                        const { aiReply, aiReplyBase } = await this.composeAiReply(text, prompt, systemPrompt);
+                        await message.reply(`Detayli yanit:\n${aiReply}`);
+                        this.setCachedAiReply(aiCacheKey, aiReply);
+                        saveInteractionMemory(text, aiReply);
+
+                        const latestState = this.aiConversationState.get(phoneNumber);
+                        if (latestState?.active) {
+                            this.pushAiHistory(latestState, text, aiReplyBase);
+                            this.aiConversationState.set(phoneNumber, latestState);
+                        }
+                    }).catch((err) => {
+                        logger.error("Hibrit mod arka plan AI hatasi:", err);
+                    });
+
+                    return;
+                }
+
+                try {
+                    const { aiReply, aiReplyBase } = await this.runWithAiConcurrencyLimit(async () => this.composeAiReply(text, prompt, systemPrompt));
+
+                    await message.reply(aiReply);
+                    this.setCachedAiReply(aiCacheKey, aiReply);
+                    saveInteractionMemory(text, aiReply);
+
+                    this.pushAiHistory(aiState, text, aiReplyBase);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                } catch (err) {
+                    logger.error("AI sohbet hatasi:", err);
+                    const errText = String(err?.message || "");
+                    if (errText.includes("AI_QUEUE_FULL")) {
+                        await message.reply("Su an yogunluk var, mesajiniz siraya alindi. Lutfen 5-10 saniye sonra tekrar yazin.");
+                        return;
+                    }
+                    const timeoutFallback = aiState.infoProvided
+                        ? "Bilgileri paylastigin icin tesekkur ederim. Kaydini oncelikli sekilde takip edecegim; bu arada istersen ek detaylari da yazabilirsin."
+                        : "Su an gecici bir yogunluk var ama yardimci olmak icin buradayim. Ad soyad, telefon, acik adres ve mumkunse tesisat/sayac no bilgisini paylasirsan hemen kayit surecine gecelim.";
+
+                    if (errText.includes("OLLAMA_TIMEOUT")) {
+                        await message.reply(timeoutFallback);
+                    } else {
+                        await message.reply("Su an teknik bir aksaklik oldu, kusura bakma. Mesajini bir kez daha yazar misin?");
+                    }
+                }
+                return;
+            }
+        } else if (content.startsWith(this.prefix)) {
+            const errorMessage = userI18n.t('unknownCommand', {
+                command: command || '',
+                prefix: this.prefix
+            });
+            chat.sendMessage(`> 🤖 ${errorMessage}`);
+        }
+    }
+}

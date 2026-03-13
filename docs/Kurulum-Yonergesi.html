@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WhatsYpzck Full Kurulum Yönergesi</title>
+  <style>
+    body {
+      margin: 26px;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #1f2d3d;
+      line-height: 1.5;
+      background: #fff;
+    }
+    h1, h2, h3 { color: #0b2a4a; }
+    .box {
+      border: 1px solid #dbe5ef;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 12px;
+      margin: 10px 0;
+    }
+    code {
+      background: #f2f5f8;
+      border: 1px solid #e3e8ee;
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-family: Consolas, monospace;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #dbe5ef;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eef4fb; }
+    .warn { color: #b45309; font-weight: 600; }
+    .ok { color: #166534; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>WhatsYpzck Full Kurulum Yönergesi (Windows)</h1>
+  <p><strong>Versiyon:</strong> 2.0.0 | <strong>Tarih:</strong> 13.03.2026</p>
+
+  <h2>1) Dağıtım Paketleri</h2>
+  <ul>
+    <li><strong>Lisanslı:</strong> WhatsYpzck-Licensed-Full-Kurulum-Setup.exe</li>
+    <li><strong>Lisanssız:</strong> WhatsYpzck-Unlicensed-Full-Kurulum-Setup.exe</li>
+    <li><strong>Lisans Üretici:</strong> WhatsYpzck-License-Generator.exe</li>
+  </ul>
+
+  <h2>2) Kurulum Öncesi Kontrol</h2>
+  <div class="box">
+    <p>Full kurulum setup, eksikse otomatik olarak Node.js, MongoDB ve Google Chrome yüklemeyi dener.</p>
+    <p>Gereken: Yönetici yetkisi, internet erişimi, winget erişimi.</p>
+  </div>
+
+  <h2>3) Kurulum Adımları</h2>
+  <ol>
+    <li>Uygun setup dosyasını <strong>Yönetici olarak</strong> çalıştırın.</li>
+    <li>Kurulum bitince otomatik setup scripti devreye girer.</li>
+    <li>Script sırasıyla:
+      <ul>
+        <li>Node.js / MongoDB / Chrome kontrolü ve kurulumunu</li>
+        <li><code>.env</code> dosyasının oluşturulmasını</li>
+        <li><code>PUPPETEER_EXECUTABLE_PATH</code> değerinin yazılmasını</li>
+        <li>npm bağımlılıklarının yüklenmesini</li>
+        <li>Type check çalıştırılmasını</li>
+        <li>(Opsiyonel) Docker/Ollama adımlarını</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h2>4) İlk Açılış</h2>
+  <ol>
+    <li>Başlatma için masaüstündeki kısa yolu veya <code>start-whatsypzck.ps1</code> scriptini çalıştırın.</li>
+    <li>Admin giriş sayfası: <code>http://localhost:3000/admin/login</code></li>
+    <li>Sağlık kontrolü: <code>http://localhost:3000/health</code> veya <code>/status</code></li>
+  </ol>
+
+  <h2>5) AI ve Entegrasyon Ayarları</h2>
+  <table>
+    <thead>
+      <tr><th>Ayar</th><th>Nereden</th><th>Not</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Gemini / GPT / Claude API anahtarları</td><td>Admin Panel &gt; Settings</td><td>Kurulum sonrası girilir</td></tr>
+      <tr><td>SMTP / E-posta</td><td>Admin Panel &gt; Integrations/Settings</td><td>Bildirimler için önerilir</td></tr>
+      <tr><td>Lisans dosyası</td><td>licenses/license.key.json</td><td>Lisanslı pakette zorunlu</td></tr>
+    </tbody>
+  </table>
+
+  <h2>6) Lisans Üretimi</h2>
+  <ol>
+    <li>WhatsYpzck-License-Generator.exe çalıştırın.</li>
+    <li>Customer ID, müşteri adı, bitiş tarihi girin.</li>
+    <li>Lisans dosyasını üretip hedef ortama taşıyın.</li>
+  </ol>
+
+  <h2>7) Güvenlik Sertleştirme Checklist</h2>
+  <ul>
+    <li class="ok">Admin paneli güçlü parola + rol tabanlı erişim</li>
+    <li class="ok">TLS reverse proxy (Nginx/Caddy) zorunlu</li>
+    <li class="ok">Gereksiz portların firewall ile kapatılması</li>
+    <li class="ok">Düzenli yedekleme ve log izleme</li>
+    <li class="ok">Aylık patch ve npm audit</li>
+    <li class="warn">Not: Mutlak güvenlik garantisi yoktur; katmanlı savunma uygulanmalıdır.</li>
+  </ul>
+
+  <h2>8) Sık Karşılaşılan Durumlar</h2>
+  <table>
+    <thead>
+      <tr><th>Durum</th><th>Çözüm</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>winget yok</td><td>Microsoft App Installer yükleyin</td></tr>
+      <tr><td>MongoDB servisi başlamıyor</td><td>Windows Services ekranından MongoDB service kontrol edin</td></tr>
+      <tr><td>Chrome yolu algılanmadı</td><td>.env içinde PUPPETEER_EXECUTABLE_PATH manuel girin</td></tr>
+      <tr><td>Lisans doğrulama hatası</td><td>public.pem + license.key.json eşleşmesini kontrol edin</td></tr>
+    </tbody>
+  </table>
+
+  <h2>9) Destek</h2>
+  <p>Kurumsal devreye alma için önerilen süreç: Pilot ortam, güvenlik doğrulaması, canlı geçiş, 2 haftalık izleme.</p>
+</body>
+</html>
