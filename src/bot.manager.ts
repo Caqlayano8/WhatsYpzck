@@ -992,6 +992,17 @@ export class BotManager {
                 lastError: ''
             }
         });
+        fireEvent('incident.created', {
+            incidentId,
+            customerName: parsed.customerName,
+            customerPhone: parsed.customerPhone,
+            customerEmail: parsed.customerEmail,
+            address: parsed.address,
+            meterNo: parsed.meterNo,
+            status: 'ALINDI',
+            statusLabel: 'Alindi',
+            source: 'whatsapp'
+        }).catch(() => {});
 
         const summaryMessage = [
             "*YENI ARIZA BILDIRIMI*",

@@ -855,6 +855,18 @@ export default function (botManager: BotManager) {
                 incident.incidentId,
                 { status, note, customerNotified, customerEmailNotified }
             );
+            fireEvent('incident.status.updated', {
+                incidentId: String(incident.incidentId),
+                status: String(status),
+                statusLabel: statusText,
+                note,
+                customerName: String(incident.customerName || ''),
+                customerPhone: String(incident.customerPhone || ''),
+                customerEmail: String(incident.customerEmail || ''),
+                address: String(incident.address || ''),
+                meterNo: String(incident.meterNo || ''),
+                source: 'crm'
+            }).catch(() => {});
 
             res.json({
                 success: true,
