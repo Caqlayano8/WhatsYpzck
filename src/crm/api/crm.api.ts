@@ -742,9 +742,37 @@ export default function (botManager: BotManager) {
                 return res.status(400).json({ error: 'Invalid status value' });
             }
 
-            const incident = await IncidentModel.findOne({ incidentId: id });
+            let incident = await IncidentModel.findOne({ incidentId: id });
             if (!incident) {
-                return res.status(404).json({ error: 'Incident not found in database' });
+                // Backward compatibility: promote legacy CSV-only incident into DB on first update.
+                const legacy = readIncidentCsvRecords().find((r: any) => r.id === id || r.fileName === id);
+                if (!legacy) {
+                    return res.status(404).json({ error: 'Incident not found in database' });
+                }
+                const createdAt = legacy.createdAt ? new Date(legacy.createdAt) : new Date();
+                incident = await IncidentModel.create({
+                    incidentId: String(legacy.id || id),
+                    customerName: String(legacy.customerName || 'Bilinmiyor'),
+                    customerPhone: String(legacy.phone || ''),
+                    customerEmail: '',
+                    address: String(legacy.address || ''),
+                    meterNo: String(legacy.meterNo || ''),
+                    issueSummary: String(legacy.issue || 'Elektrik arizasi bildirimi'),
+                    sourcePhoneNumber: String(legacy.sourceNumber || ''),
+                    status: 'ALINDI',
+                    statusHistory: [{
+                        status: 'ALINDI',
+                        note: 'Legacy CSV kaydindan aktarildi',
+                        at: createdAt
+                    }],
+                    notifications: {
+                        teamWhatsAppSent: false,
+                        teamEmailSent: false,
+                        customerEmailSent: false,
+                        lastError: ''
+                    },
+                    createdAt
+                });
             }
 
             incident.status = status as any;
