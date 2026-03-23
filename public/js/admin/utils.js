@@ -1,3 +1,6 @@
+const TR_LOCALE = 'tr-TR';
+const TR_TIME_ZONE = 'Europe/Istanbul';
+
 // Toast notifications
 window.showToast = function (message, type = 'success') {
   const colors = { success: 'bg-green-600', error: 'bg-red-600', warning: 'bg-amber-500', info: 'bg-blue-600' };
@@ -44,7 +47,8 @@ function renderPagination(meta, loadFn, containerId) {
 function fmtDate(d) {
   if (!d) return '—';
   const dt = new Date(d);
-  return dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return dt.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE }) + ' ' +
+    dt.toLocaleTimeString(TR_LOCALE, { timeZone: TR_TIME_ZONE, hour: '2-digit', minute: '2-digit' });
 }
 
 function langBadge(lang) {
@@ -78,11 +82,14 @@ function avatarInitials(name) {
 
 function fmtMsgTime(ts) {
   if (!ts) return '';
-  const d = new Date(ts); const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
+  const d = new Date(ts);
+  const now = new Date();
+  const dDay = d.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE });
+  const nowDay = now.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE });
+  const isToday = dDay === nowDay;
   return isToday
-    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    ? d.toLocaleTimeString(TR_LOCALE, { timeZone: TR_TIME_ZONE, hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE, month: 'short', day: 'numeric' });
 }
 
 function buildBubble(m) {
@@ -107,13 +114,13 @@ function renderMsgList(msgs, containerId) {
   if (!el) return;
   el.innerHTML = '';
   if (!msgs || !msgs.length) {
-    el.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">No messages yet</p>';
+    el.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">Henüz mesaj yok</p>';
     return;
   }
   let lastDate = '';
   msgs.forEach(m => {
     const d = new Date(m.timestamp);
-    const dateStr = d.toLocaleDateString([], { weekday:'long', month:'short', day:'numeric' });
+    const dateStr = d.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE, weekday:'long', month:'short', day:'numeric' });
     if (dateStr !== lastDate) {
       el.insertAdjacentHTML('beforeend', buildDateSeparator(dateStr));
       lastDate = dateStr;

@@ -1,4 +1,4 @@
-﻿// Commands
+// Commands
 
 async function loadCommands() {
   const AS = window.AdminState;
@@ -13,7 +13,7 @@ async function loadCommands() {
     }
     renderCommands(list, stats);
   } catch {
-    showToast('Failed to load commands', 'error');
+    showToast('Komutlar yuklenemedi', 'error');
   }
 }
 
@@ -23,7 +23,7 @@ function renderCommands(list, stats) {
   const tbody = document.getElementById('commands-table-body');
   tbody.innerHTML = '';
   if (!list || !list.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">No commands found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">Komut bulunamadi</td></tr>`;
     return;
   }
   list.forEach(cmd => {
@@ -35,13 +35,13 @@ function renderCommands(list, stats) {
       <td class="px-6 py-3.5 text-sm text-gray-600">${count}</td>
       <td class="px-6 py-3.5">
         <span class="text-xs font-bold px-2.5 py-1 rounded-full ${cmd.disabled ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}">
-          ${cmd.disabled ? 'Disabled' : 'Enabled'}
+          ${cmd.disabled ? 'Devre Disi' : 'Etkin'}
         </span>
       </td>
       <td class="px-6 py-3.5">
         <button onclick="toggleCommand('${escHtml(cmd.name)}')"
           class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${cmd.disabled ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-600 hover:bg-red-50'}">
-          ${cmd.disabled ? 'Enable' : 'Disable'}
+          ${cmd.disabled ? 'Etkinlestir' : 'Devre Disi Birak'}
         </button>
       </td>
     `;
@@ -52,10 +52,10 @@ function renderCommands(list, stats) {
 window.toggleCommand = async function (name) {
   try {
     await apiFetch(`/crm/commands/${encodeURIComponent(name)}`, 'PATCH');
-    showToast('Command updated', 'success');
+    showToast('Komut guncellendi', 'success');
     loadCommands();
   } catch {
-    showToast('Failed to update command', 'error');
+    showToast('Komut guncellenemedi', 'error');
   }
 };
 
@@ -67,7 +67,7 @@ async function loadUsers() {
     AS.users = await apiFetch('/crm/users');
     renderUsers(AS.users);
   } catch {
-    showToast('Failed to load users', 'error');
+    showToast('Kullanicilar yuklenemedi', 'error');
   }
 }
 
@@ -76,7 +76,7 @@ function renderUsers(list) {
   const tbody = document.getElementById('users-table-body');
   tbody.innerHTML = '';
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">No users found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">Kullanici bulunamadi</td></tr>`;
     return;
   }
   list.forEach(u => {
@@ -94,13 +94,13 @@ function renderUsers(list) {
       <td class="px-6 py-3.5">
         <div class="flex items-center gap-1">
           ${isSelf
-            ? '<span class="text-xs text-gray-400 italic">You</span>'
+            ? '<span class="text-xs text-gray-400 italic">Siz</span>'
             : `<button onclick="changeUserRole('${u._id}', '${u.role === 'admin' ? 'user' : 'admin'}')"
-                 title="Change to ${u.role === 'admin' ? 'user' : 'admin'}"
+                 title="${u.role === 'admin' ? 'Kullanici yap' : 'Yonetici yap'}"
                  class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs">
                  <i class="fas fa-exchange-alt"></i>
                </button>
-               <button onclick="deleteUser('${u._id}')" title="Delete"
+               <button onclick="deleteUser('${u._id}')" title="Sil"
                  class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg text-xs">
                  <i class="fas fa-trash"></i>
                </button>`
@@ -115,7 +115,7 @@ function renderUsers(list) {
 window.openUserModal = function (user = null) {
   const AS = window.AdminState;
   AS.currentUserId = user?._id || null;
-  document.getElementById('user-modal-title').textContent = user ? 'Edit User' : 'Add User';
+  document.getElementById('user-modal-title').textContent = user ? 'Kullanici Duzenle' : 'Kullanici Ekle';
   document.getElementById('user-modal-id').value   = user?._id    || '';
   document.getElementById('user-username').value   = user?.username || '';
   document.getElementById('user-password').value   = '';
@@ -136,44 +136,44 @@ window.saveUser = async function () {
   const role     = document.getElementById('user-role').value;
   const id       = document.getElementById('user-modal-id').value;
 
-  if (!username) { showToast('Username is required', 'warning'); return; }
-  if (!id && !password) { showToast('Password is required for new users', 'warning'); return; }
+  if (!username) { showToast('Kullanici adi zorunludur', 'warning'); return; }
+  if (!id && !password) { showToast('Yeni kullanici icin sifre zorunludur', 'warning'); return; }
 
   try {
     if (id) {
       await apiFetch(`/crm/users/${id}`, 'PUT', { role });
-      showToast('User updated', 'success');
+      showToast('Kullanici guncellendi', 'success');
     } else {
       await apiFetch('/crm/auth/register', 'POST', { username, password, role });
-      showToast('User created', 'success');
+      showToast('Kullanici olusturuldu', 'success');
     }
     closeUserModal();
     loadUsers();
   } catch {
-    showToast('Failed to save user', 'error');
+    showToast('Kullanici kaydedilemedi', 'error');
   }
 };
 
 window.changeUserRole = async function (id, newRole) {
   try {
     await apiFetch(`/crm/users/${id}`, 'PUT', { role: newRole });
-    showToast('Role updated', 'success');
+    showToast('Rol guncellendi', 'success');
     loadUsers();
   } catch {
-    showToast('Failed to update role', 'error');
+    showToast('Rol guncellenemedi', 'error');
   }
 };
 
 window.deleteUser = async function (id) {
   const AS = window.AdminState;
   const u = AS.users.find(x => x._id === id);
-  if (!confirm(`Delete user "${u?.username}"? This cannot be undone.`)) return;
+  if (!confirm(`"${u?.username}" kullanicisi silinsin mi? Bu islem geri alinamaz.`)) return;
   try {
     await apiFetch(`/crm/users/${id}`, 'DELETE');
-    showToast('User deleted', 'success');
+    showToast('Kullanici silindi', 'success');
     loadUsers();
   } catch {
-    showToast('Failed to delete user', 'error');
+    showToast('Kullanici silinemedi', 'error');
   }
 };
 
@@ -188,7 +188,7 @@ window.loadAuditLogs = async function (page = 1) {
     const res = await apiFetch(`/crm/audit-logs?page=${page}&limit=20&action=${action}&resource=${resource}`);
     renderAuditLogs(res.data || [], res.meta || {});
   } catch {
-    showToast('Failed to load audit logs', 'error');
+    showToast('Denetim kayitlari yuklenemedi', 'error');
   }
 };
 
@@ -198,7 +198,7 @@ function renderAuditLogs(logs, meta) {
   document.getElementById('audit-total').textContent = meta.total || logs.length;
 
   if (!logs.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-8 text-center text-sm text-gray-400">No audit entries found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-8 text-center text-sm text-gray-400">Denetim kaydi bulunamadi</td></tr>`;
   } else {
     logs.forEach(l => {
       const details = l.details ? JSON.stringify(l.details).substring(0, 80) : '—';
@@ -303,10 +303,10 @@ async function loadSettings() {
 
     const botInfoGrid = document.getElementById('bot-info-grid');
     botInfoGrid.innerHTML = [
-      ['Environment', data.env?.ENV],
+      ['Ortam', data.env?.ENV],
       ['Port',        data.env?.PORT],
-      ['Bot Name',    'WhatsYpzck'],
-      ['Prefix',      data.env?.ENV === 'production' ? '/' : '!'],
+      ['Bot Adi',    'WhatsYpzck'],
+      ['On Ek',      data.env?.ENV === 'production' ? '/' : '!'],
     ].map(([k, v]) => `
       <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
         <span class="text-sm text-gray-500">${k}</span>
@@ -334,7 +334,7 @@ async function loadSettings() {
           <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
             <span class="text-sm text-gray-700 font-medium">${label}</span>
             <span class="text-xs font-bold px-2.5 py-1 rounded-full ${configured ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}">
-              ${configured ? '✓ Configured' : '✗ Missing'}
+              ${configured ? '✓ Yapilandirildi' : '✗ Eksik'}
             </span>
           </div>
         `;
@@ -365,7 +365,7 @@ async function loadSettings() {
       el.dataset.persistedValue = persistedValue;
     });
   } catch {
-    showToast('Failed to load settings', 'error');
+    showToast('Ayarlar yuklenemedi', 'error');
   }
 }
 
@@ -374,7 +374,7 @@ async function saveSettings() {
   const maxFileSizeMb = parseInt(document.getElementById('setting-maxFileSizeMb').value, 10);
 
   if (isNaN(maxFileSizeMb) || maxFileSizeMb < 1 || maxFileSizeMb > 500) {
-    showToast('Max file size must be between 1 and 500 MB', 'error');
+    showToast('Maksimum dosya boyutu 1 ile 500 MB arasinda olmalidir', 'error');
     return;
   }
 
@@ -407,10 +407,10 @@ async function saveSettings() {
   });
   try {
     await apiFetch('/crm/settings', 'PUT', { maxFileSizeMb, autoDownloadEnabled: AS.autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates });
-    showToast('Settings saved', 'success');
+    showToast('Ayarlar kaydedildi', 'success');
     loadSettings();
   } catch {
-    showToast('Failed to save settings', 'error');
+    showToast('Ayarlar kaydedilemedi', 'error');
   }
 }
 
@@ -426,7 +426,7 @@ window.toggleAutoDownload = function () {
 window.openMessageModal = function (phone, name) {
   const AS = window.AdminState;
   AS.currentRecipient = phone;
-  document.getElementById('msg-recipient-label').textContent = `To: ${name || phone}`;
+  document.getElementById('msg-recipient-label').textContent = `Alici: ${name || phone}`;
   document.getElementById('message-content').value = '';
   document.getElementById('message-modal').classList.remove('hidden');
 };
@@ -443,9 +443,9 @@ window.sendPrivateMessage = async function () {
   if (!message || !AS.currentRecipient) return;
   try {
     await apiFetch('/crm/send-message', 'POST', { phoneNumber: AS.currentRecipient, message });
-    showToast('Message sent!', 'success');
+    showToast('Mesaj gonderildi', 'success');
     closeMessageModal();
   } catch {
-    showToast('Failed to send message', 'error');
+    showToast('Mesaj gonderilemedi', 'error');
   }
 };

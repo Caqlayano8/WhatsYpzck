@@ -21,7 +21,7 @@ async function loadIncidents() {
     AS.incidents = res.data || [];
     renderIncidents(AS.incidents);
   } catch {
-    showToast('Failed to load incident reports', 'error');
+    showToast('Arıza raporları yüklenemedi', 'error');
   }
 }
 

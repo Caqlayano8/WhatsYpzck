@@ -19,6 +19,7 @@ import { MessageModel } from '../models/message.model';
 import { ScoreRuleModel } from '../models/score-rule.model';
 import { TemplateRevisionModel } from '../models/template-revision.model';
 import { ScheduledMessageModel } from '../models/scheduled-message.model';
+import { ContactGroupModel } from '../models/contact-group.model';
 import { messageEmitter } from '../../utils/events/message-emitter.util';
 import { IntegrationModel, INTEGRATION_EVENTS } from '../models/integration.model';
 import { AutoReplyModel } from '../models/auto-reply.model';
@@ -31,6 +32,8 @@ import { FlowSessionModel } from '../models/flow-session.model';
 import { geminiCompletion } from '../../utils/ai/gemini.util';
 import { claudeCompletion } from '../../utils/ai/claude.util';
 import { chatGptCompletion } from '../../utils/ai/chat-gpt.util';
+import { formatTrDateTime } from '../../utils/system/datetime.util';
+import { isLidConversationPhone, normalizeConversationPhone } from '../../utils/whatsapp/conversation-phone.util';
 import crypto from 'crypto';
 
 export const router = express.Router();
@@ -79,6 +82,56 @@ function toWhatsAppChatId(raw: string): string | null {
     return `${digits}@c.us`;
 }
 
+const conversationPhoneCache = new Map<string, string>();
+
+async function resolveConversationPhone(raw: string, botManager: BotManager): Promise<string> {
+    const value = String(raw || '').trim();
+    if (!value) return '';
+
+    const cached = conversationPhoneCache.get(value);
+    if (cached) return cached;
+
+    let resolved = normalizeConversationPhone(value);
+
+    if (isLidConversationPhone(value) && typeof (botManager.client as any)?.getContactLidAndPhone === 'function') {
+        try {
+            const match = await (botManager.client as any).getContactLidAndPhone([value]);
+            const mappedPhone = match?.[0]?.pn;
+            if (mappedPhone) {
+                resolved = normalizeConversationPhone(String(mappedPhone));
+            }
+        } catch (_) {
+            // fall back to normalized raw lid id
+        }
+    }
+
+    conversationPhoneCache.set(value, resolved);
+    if (resolved) {
+        conversationPhoneCache.set(resolved, resolved);
+    }
+    return resolved;
+}
+
+async function buildConversationResolutionMap(rawPhones: string[], botManager: BotManager): Promise<Map<string, string>> {
+    const entries = await Promise.all(
+        Array.from(new Set((rawPhones || []).map((phone) => String(phone || '').trim()).filter(Boolean))).map(async (phone) => {
+            const canonical = await resolveConversationPhone(phone, botManager);
+            return [phone, canonical || normalizeConversationPhone(phone)] as const;
+        })
+    );
+
+    return new Map(entries);
+}
+
+function pickConversationContact(contacts: any[], canonicalPhone: string): any | null {
+    const match = (contacts || []).find((contact) => normalizeConversationPhone(contact.phoneNumber) === canonicalPhone);
+    return match || null;
+}
+
+function getBotOwnConversationPhone(botManager: BotManager): string {
+    return normalizeConversationPhone(String((botManager.client as any)?.info?.wid?._serialized || (botManager.client as any)?.info?.wid?.user || ''));
+}
+
 function incidentStatusLabel(status: string): string {
     const map: Record<string, string> = {
         ALINDI: 'Kayit alindi',
@@ -88,6 +141,44 @@ function incidentStatusLabel(status: string): string {
         KAPATILDI: 'Kapatildi'
     };
     return map[String(status || '').toUpperCase()] || 'Bilinmiyor';
+}
+
+function slugifyGroupName(value: string): string {
+    return String(value || '')
+        .toLocaleLowerCase('tr-TR')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
+function parseGroupList(value: any): string[] {
+    if (Array.isArray(value)) {
+        return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean)));
+    }
+
+    return Array.from(new Set(
+        String(value || '')
+            .split(/[\n,;]/)
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+    ));
+}
+
+async function persistOutboundAdminMessage(phoneNumber: string, message: string, sentMessage: any) {
+    const canonicalPhone = normalizeConversationPhone(phoneNumber);
+    const msgDoc = await MessageModel.create({
+        phoneNumber: canonicalPhone,
+        body: message,
+        type: 'text',
+        direction: 'out',
+        whatsappMessageId: sentMessage?.id?._serialized,
+        sentVia: 'admin',
+        read: true,
+        timestamp: new Date()
+    });
+    messageEmitter.emit('message', msgDoc.toObject());
+    return msgDoc;
 }
 
 function isValidEmail(value: string): boolean {
@@ -801,7 +892,7 @@ export default function (botManager: BotManager) {
             );
 
             const statusText = incidentStatusLabel(status);
-            const updatedAtText = new Date().toLocaleString('tr-TR');
+            const updatedAtText = formatTrDateTime(new Date());
             const noteLine = note ? `Aciklama: ${note}` : '';
             const templateVars = {
                 incidentId: String(incident.incidentId),
@@ -1116,32 +1207,45 @@ export default function (botManager: BotManager) {
     // Inbox
     router.get('/inbox', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const conversations = await MessageModel.aggregate([
-                { $sort: { timestamp: -1 } },
-                {
-                    $group: {
-                        _id: '$phoneNumber',
-                        lastMessage: { $first: '$body' },
-                        lastTimestamp: { $first: '$timestamp' },
-                        direction: { $first: '$direction' },
-                        unread: { $sum: { $cond: [{ $and: [{ $eq: ['$direction', 'in'] }, { $eq: ['$read', false] }] }, 1, 0] } }
-                    }
-                },
-                { $sort: { lastTimestamp: -1 } },
-                { $limit: 100 }
-            ]);
-            // Enrich with contact info
-            const phones = conversations.map((c: any) => c._id);
-            const contacts = await ContactModel.find({ phoneNumber: { $in: phones } }).lean();
-            const contactMap: Record<string, any> = {};
-            contacts.forEach(c => { contactMap[c.phoneNumber] = c; });
-            const result = conversations.map((c: any) => ({
-                phoneNumber: c._id,
-                lastMessage: c.lastMessage,
-                lastTimestamp: c.lastTimestamp,
-                unread: c.unread,
-                contact: contactMap[c._id] || null
-            }));
+            const messages = await MessageModel.find({})
+                .sort({ timestamp: -1 })
+                .limit(2000)
+                .lean();
+
+            const resolutionMap = await buildConversationResolutionMap(messages.map((message: any) => message.phoneNumber), botManager);
+            const conversationMap = new Map<string, any>();
+            const botOwnPhone = getBotOwnConversationPhone(botManager);
+
+            messages.forEach((message: any) => {
+                const canonicalPhone = resolutionMap.get(message.phoneNumber) || normalizeConversationPhone(message.phoneNumber);
+                if (!canonicalPhone) return;
+                if (botOwnPhone && canonicalPhone === botOwnPhone) return;
+
+                const existing = conversationMap.get(canonicalPhone);
+                if (!existing) {
+                    conversationMap.set(canonicalPhone, {
+                        phoneNumber: canonicalPhone,
+                        lastMessage: message.body,
+                        lastTimestamp: message.timestamp,
+                        unread: message.direction === 'in' && message.read === false ? 1 : 0
+                    });
+                    return;
+                }
+
+                if (message.direction === 'in' && message.read === false) {
+                    existing.unread += 1;
+                }
+            });
+
+            const canonicalPhones = Array.from(conversationMap.keys());
+            const contacts = await ContactModel.find({}).lean();
+            const result = canonicalPhones
+                .map((phoneNumber) => ({
+                    ...conversationMap.get(phoneNumber),
+                    contact: pickConversationContact(contacts, phoneNumber)
+                }))
+                .sort((a, b) => new Date(b.lastTimestamp || 0).getTime() - new Date(a.lastTimestamp || 0).getTime())
+                .slice(0, 100);
             res.json(result);
         } catch (error) {
             logger.error('Failed to fetch inbox:', error);
@@ -1172,15 +1276,30 @@ export default function (botManager: BotManager) {
     router.get('/inbox/:phone', authenticate, authorizeAdmin, async (req, res) => {
         try {
             const { phone } = req.params;
-            const messages = await MessageModel.find({ phoneNumber: phone })
+            const canonicalPhone = normalizeConversationPhone(phone);
+            const botOwnPhone = getBotOwnConversationPhone(botManager);
+            if (botOwnPhone && canonicalPhone === botOwnPhone) {
+                return res.json({ messages: [], contact: null });
+            }
+            const rawPhones = await MessageModel.distinct('phoneNumber');
+            const resolutionMap = await buildConversationResolutionMap(rawPhones, botManager);
+            const aliases = rawPhones.filter((rawPhone) => (resolutionMap.get(rawPhone) || normalizeConversationPhone(rawPhone)) === canonicalPhone);
+            const messagePhones = Array.from(new Set([canonicalPhone, ...aliases].filter(Boolean)));
+
+            const messages = await MessageModel.find({ phoneNumber: { $in: messagePhones } })
                 .sort({ timestamp: 1 })
-                .limit(200);
+                .limit(300)
+                .lean();
             await MessageModel.updateMany(
-                { phoneNumber: phone, direction: 'in', read: false },
+                { phoneNumber: { $in: messagePhones }, direction: 'in', read: false },
                 { $set: { read: true } }
             );
-            const contact = await ContactModel.findOne({ phoneNumber: phone }).lean();
-            res.json({ messages, contact });
+            const contacts = await ContactModel.find({}).lean();
+            const contact = pickConversationContact(contacts, canonicalPhone);
+            res.json({
+                messages: messages.map((message: any) => ({ ...message, phoneNumber: canonicalPhone })),
+                contact
+            });
         } catch (error) {
             logger.error('Failed to fetch conversation:', error);
             res.status(500).json({ error: 'Failed to fetch conversation' });
@@ -1193,14 +1312,19 @@ export default function (botManager: BotManager) {
             const { message } = req.body;
             if (!message) return res.status(400).json({ error: 'message required' });
 
-            const formattedNumber = phone.includes('@') ? phone : `${phone}@c.us`;
-            await botManager.client.sendMessage(formattedNumber, message);
+            const canonicalPhone = normalizeConversationPhone(phone);
+            const formattedNumber = toWhatsAppChatId(canonicalPhone);
+            if (!formattedNumber) {
+                return res.status(400).json({ error: 'invalid phone number' });
+            }
+            const sentMessage = await botManager.client.sendMessage(formattedNumber, message);
 
             const msgDoc = await MessageModel.create({
-                phoneNumber: phone,
+                phoneNumber: canonicalPhone,
                 body: message,
                 type: 'text',
                 direction: 'out',
+                whatsappMessageId: sentMessage?.id?._serialized,
                 sentVia: 'admin',
                 read: true,
                 timestamp: new Date()
@@ -1510,20 +1634,224 @@ export default function (botManager: BotManager) {
 
     router.post('/scheduled-messages', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { phoneNumber, message, scheduledAt, contactName } = req.body;
-            if (!phoneNumber || !message || !scheduledAt) {
-                return res.status(400).json({ error: 'phoneNumber, message and scheduledAt are required' });
+            const {
+                phoneNumber,
+                message,
+                scheduledAt,
+                contactName,
+                recipientType = 'single',
+                groupId,
+                groupName,
+                recipientPhones = []
+            } = req.body;
+
+            if (!message || !scheduledAt) {
+                return res.status(400).json({ error: 'message and scheduledAt are required' });
             }
+
+            const normalizedSinglePhone = normalizeConversationPhone(phoneNumber || '');
+            const normalizedGroupPhones = Array.from(new Set(
+                (Array.isArray(recipientPhones) ? recipientPhones : [])
+                    .map((value: string) => normalizeConversationPhone(value))
+                    .filter(Boolean)
+            ));
+
+            if (recipientType === 'group') {
+                if (!groupId || !groupName || !normalizedGroupPhones.length) {
+                    return res.status(400).json({ error: 'groupId, groupName and recipientPhones are required for group messages' });
+                }
+            } else if (!normalizedSinglePhone) {
+                return res.status(400).json({ error: 'phoneNumber is required' });
+            }
+
             const doc = await ScheduledMessageModel.create({
-                phoneNumber, message,
+                recipientType,
+                phoneNumber: normalizedSinglePhone,
+                groupId: recipientType === 'group' ? String(groupId) : undefined,
+                groupName: recipientType === 'group' ? String(groupName) : undefined,
+                recipientPhones: recipientType === 'group' ? normalizedGroupPhones : [],
+                recipientCount: recipientType === 'group' ? normalizedGroupPhones.length : 1,
+                message,
                 scheduledAt: new Date(scheduledAt),
                 contactName: contactName || '',
                 createdBy: req.user.userId
             });
-            await addAuditLog(req.user.userId, req.user.username || '', 'scheduled_message.create', 'scheduled_message', String(doc._id), { phoneNumber, scheduledAt });
+            await addAuditLog(req.user.userId, req.user.username || '', 'scheduled_message.create', 'scheduled_message', String(doc._id), {
+                phoneNumber: normalizedSinglePhone,
+                groupId,
+                groupName,
+                scheduledAt,
+                recipientType
+            });
             res.status(201).json(doc);
         } catch (error) {
             res.status(500).json({ error: 'Failed to create scheduled message' });
+        }
+    });
+
+    router.get('/contact-groups', authenticate, authorizeAdmin, async (_req, res) => {
+        try {
+            const groups = await ContactGroupModel.find().sort({ name: 1 }).lean();
+            res.json(groups.map((group) => ({
+                ...group,
+                memberCount: Array.isArray(group.memberPhones) ? group.memberPhones.length : 0
+            })));
+        } catch (error) {
+            logger.error('GET /contact-groups error:', error);
+            res.status(500).json({ error: 'Failed to fetch contact groups' });
+        }
+    });
+
+    router.post('/contact-groups', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const name = String(req.body?.name || '').trim();
+            if (!name) return res.status(400).json({ error: 'Group name is required' });
+
+            const slug = slugifyGroupName(req.body?.slug || name);
+            const addressKeywords = parseGroupList(req.body?.addressKeywords).map((item) => item.toLocaleLowerCase('tr-TR'));
+            const memberPhones = parseGroupList(req.body?.memberPhones).map((item) => normalizeConversationPhone(item)).filter(Boolean);
+            const doc = await ContactGroupModel.create({
+                name,
+                slug,
+                description: String(req.body?.description || '').trim(),
+                addressKeywords,
+                memberPhones: Array.from(new Set(memberPhones)),
+                enabled: req.body?.enabled !== false
+            });
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.create', 'contact_group', String(doc._id), {
+                name,
+                slug,
+                memberCount: memberPhones.length
+            });
+            res.status(201).json(doc);
+        } catch (error: any) {
+            logger.error('POST /contact-groups error:', error);
+            if (error?.code === 11000) return res.status(409).json({ error: 'Bu grup adi veya kisaltmasi zaten kullaniliyor' });
+            res.status(500).json({ error: 'Failed to create contact group' });
+        }
+    });
+
+    router.put('/contact-groups/:id', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const existing = await ContactGroupModel.findById(req.params.id);
+            if (!existing) return res.status(404).json({ error: 'Group not found' });
+
+            const name = String(req.body?.name || existing.name).trim();
+            const slug = slugifyGroupName(req.body?.slug || name);
+            existing.name = name;
+            existing.slug = slug;
+            existing.description = String(req.body?.description ?? existing.description ?? '').trim();
+            existing.addressKeywords = parseGroupList(req.body?.addressKeywords ?? existing.addressKeywords)
+                .map((item) => item.toLocaleLowerCase('tr-TR'));
+            existing.memberPhones = Array.from(new Set(
+                parseGroupList(req.body?.memberPhones ?? existing.memberPhones)
+                    .map((item) => normalizeConversationPhone(item))
+                    .filter(Boolean)
+            ));
+            existing.enabled = req.body?.enabled !== undefined ? Boolean(req.body.enabled) : existing.enabled;
+            await existing.save();
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.update', 'contact_group', String(existing._id), {
+                name: existing.name,
+                slug: existing.slug,
+                memberCount: existing.memberPhones.length
+            });
+            res.json(existing);
+        } catch (error: any) {
+            logger.error('PUT /contact-groups/:id error:', error);
+            if (error?.code === 11000) return res.status(409).json({ error: 'Bu grup adi veya kisaltmasi zaten kullaniliyor' });
+            res.status(500).json({ error: 'Failed to update contact group' });
+        }
+    });
+
+    router.delete('/contact-groups/:id', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const doc = await ContactGroupModel.findByIdAndDelete(req.params.id);
+            if (!doc) return res.status(404).json({ error: 'Group not found' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.delete', 'contact_group', req.params.id, { name: doc.name });
+            res.json({ success: true });
+        } catch (error) {
+            logger.error('DELETE /contact-groups/:id error:', error);
+            res.status(500).json({ error: 'Failed to delete contact group' });
+        }
+    });
+
+    router.post('/contact-groups/:id/send-message', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const message = String(req.body?.message || '').trim();
+            if (!message) return res.status(400).json({ error: 'Message is required' });
+
+            const group = await ContactGroupModel.findById(req.params.id);
+            if (!group) return res.status(404).json({ error: 'Group not found' });
+
+            const recipients = Array.from(new Set((group.memberPhones || []).map((item) => normalizeConversationPhone(item)).filter(Boolean)));
+            if (!recipients.length) {
+                return res.status(400).json({ error: 'Group has no members yet' });
+            }
+
+            let sentCount = 0;
+            let failedCount = 0;
+            for (const phone of recipients) {
+                try {
+                    const sentMessage = await botManager.client.sendMessage(toWhatsAppChatId(phone) as string, message);
+                    await persistOutboundAdminMessage(phone, message, sentMessage);
+                    sentCount++;
+                } catch (error) {
+                    failedCount++;
+                    logger.error(`Failed to send group message to ${phone}:`, error);
+                }
+            }
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.send_message', 'contact_group', req.params.id, {
+                name: group.name,
+                sentCount,
+                failedCount
+            });
+
+            res.json({ success: true, sentCount, failedCount, groupName: group.name });
+        } catch (error) {
+            logger.error('POST /contact-groups/:id/send-message error:', error);
+            res.status(500).json({ error: 'Failed to send group message' });
+        }
+    });
+
+    router.post('/contact-groups/:id/schedule-message', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const message = String(req.body?.message || '').trim();
+            const scheduledAt = req.body?.scheduledAt;
+            if (!message || !scheduledAt) {
+                return res.status(400).json({ error: 'Message and scheduledAt are required' });
+            }
+
+            const group = await ContactGroupModel.findById(req.params.id);
+            if (!group) return res.status(404).json({ error: 'Group not found' });
+
+            const recipients = Array.from(new Set((group.memberPhones || []).map((item) => normalizeConversationPhone(item)).filter(Boolean)));
+            if (!recipients.length) {
+                return res.status(400).json({ error: 'Group has no members yet' });
+            }
+
+            const doc = await ScheduledMessageModel.create({
+                recipientType: 'group',
+                groupId: String(group._id),
+                groupName: group.name,
+                recipientPhones: recipients,
+                recipientCount: recipients.length,
+                message,
+                scheduledAt: new Date(scheduledAt),
+                createdBy: req.user.userId
+            });
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.schedule_message', 'contact_group', req.params.id, {
+                groupName: group.name,
+                scheduledAt,
+                recipientCount: recipients.length
+            });
+            res.status(201).json(doc);
+        } catch (error) {
+            logger.error('POST /contact-groups/:id/schedule-message error:', error);
+            res.status(500).json({ error: 'Failed to schedule group message' });
         }
     });
 
@@ -1546,29 +1874,35 @@ export default function (botManager: BotManager) {
             const q = (req.query.q as string || '').trim();
             const phone = (req.query.phone as string || '').trim();
             const filter: any = {};
-            if (phone) filter.phoneNumber = { $regex: phone, $options: 'i' };
             if (q) filter.body = { $regex: q, $options: 'i' };
 
             const messages = await MessageModel.find(filter)
                 .sort({ timestamp: -1 })
-                .limit(200)
+                .limit(400)
                 .lean();
 
-            // Group by phoneNumber for conversation threads
+            const resolutionMap = await buildConversationResolutionMap(messages.map((message: any) => message.phoneNumber), botManager);
+            const normalizedPhoneSearch = normalizeConversationPhone(phone);
+            const botOwnPhone = getBotOwnConversationPhone(botManager);
+
             const threadMap: Record<string, any[]> = {};
-            messages.forEach(m => {
-                if (!threadMap[m.phoneNumber]) threadMap[m.phoneNumber] = [];
-                threadMap[m.phoneNumber].push(m);
+            messages.forEach((message: any) => {
+                const canonicalPhone = resolutionMap.get(message.phoneNumber) || normalizeConversationPhone(message.phoneNumber);
+                if (!canonicalPhone) return;
+                if (botOwnPhone && canonicalPhone === botOwnPhone) return;
+                if (phone && canonicalPhone !== normalizedPhoneSearch && !canonicalPhone.includes(normalizedPhoneSearch)) {
+                    return;
+                }
+                if (!threadMap[canonicalPhone]) threadMap[canonicalPhone] = [];
+                threadMap[canonicalPhone].push({ ...message, phoneNumber: canonicalPhone });
             });
 
             const phones = Object.keys(threadMap);
-            const contacts = await ContactModel.find({ phoneNumber: { $in: phones } }).lean();
-            const contactMap: Record<string, any> = {};
-            contacts.forEach(c => { contactMap[c.phoneNumber] = c; });
+            const contacts = await ContactModel.find({}).lean();
 
             const threads = phones.map(pn => ({
                 phoneNumber: pn,
-                contact: contactMap[pn] || null,
+                contact: pickConversationContact(contacts, pn),
                 matchCount: threadMap[pn].length,
                 lastMessage: threadMap[pn][0]?.body || '',
                 lastTimestamp: threadMap[pn][0]?.timestamp || null,

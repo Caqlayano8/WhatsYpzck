@@ -279,7 +279,7 @@
         $('val-platform').textContent = d.botPlatform || '—';
         $('val-uptime').textContent   = formatUptime(parseFloat(d.uptime));
         $('val-version').textContent  = d.version     || '—';
-        $('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        $('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul' });
 
         const uptimeSec = parseFloat(d.uptime) || 0;
         const pct = Math.min((uptimeSec / 86400) * 100, 100);

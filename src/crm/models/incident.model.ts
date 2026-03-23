@@ -23,6 +23,8 @@ export interface IIncident extends Document {
         customerEmailSent: boolean;
         lastError?: string;
     };
+    photoCoords?: { lat: number; lng: number };
+    locationCoords?: { lat: number; lng: number };
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -55,7 +57,9 @@ const incidentSchema = new Schema<IIncident>({
         teamEmailSent: { type: Boolean, default: false },
         customerEmailSent: { type: Boolean, default: false },
         lastError: { type: String, default: '' }
-    }
+    },
+    photoCoords: { lat: { type: Number }, lng: { type: Number } },
+    locationCoords: { lat: { type: Number }, lng: { type: Number } }
 }, {
     timestamps: true
 });

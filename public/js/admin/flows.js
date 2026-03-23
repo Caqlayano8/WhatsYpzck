@@ -17,10 +17,10 @@ const NODE_COLORS = {
   end:          { bg: '#ef4444', light: '#fef2f2', icon: 'fa-flag-checkered' },
 };
 const NODE_LABELS = {
-  trigger: 'Trigger', message: 'Send Message', question: 'Ask Question',
-  condition: 'Condition', tag: 'Apply Tag', delay: 'Wait / Delay',
-  set_variable: 'Set Variable', score: 'Update Score', jump: 'Jump to Flow',
-  transfer: 'Transfer', end: 'End',
+  trigger: 'Tetikleyici', message: 'Mesaj Gönder', question: 'Soru Sor',
+  condition: 'Koşul', tag: 'Etiket Uygula', delay: 'Bekle / Geciktir',
+  set_variable: 'Değişken Ayarla', score: 'Puanı Güncelle', jump: 'Akışa Atla',
+  transfer: 'Aktar', end: 'Son',
 };
 // Nodes with 2 output ports (yes/no)
 const DUAL_PORT_TYPES = new Set(['condition']);
@@ -52,7 +52,7 @@ async function loadFlows() {
     fb.allFlows = flows;
     renderFlowsList(flows);
   } catch {
-    showToast('Failed to load flows', 'error');
+    showToast('Akışlar yüklenemedi', 'error');
   }
 }
 
@@ -67,11 +67,11 @@ function renderFlowsList(flows) {
   }
   empty?.classList.add('hidden');
 
-  const triggerLabel = { keyword: 'Keyword', any_message: 'Any Message', first_contact: 'First Contact', tag_applied: 'Tag Applied', campaign_reply: 'Campaign Reply' };
+  const triggerLabel = { keyword: 'Anahtar Kelime', any_message: 'Herhangi Mesaj', first_contact: 'İlk Temas', tag_applied: 'Etiket Uygulandı', campaign_reply: 'Kampanya Yanıtı' };
 
   grid.innerHTML = flows.map(f => {
     const statusBg  = f.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500';
-    const statusTxt = f.status === 'published' ? 'Published' : 'Draft';
+    const statusTxt = f.status === 'published' ? 'Yayımlandı' : 'Taslak';
     const rate = f.stats.activations > 0 ? Math.round((f.stats.completions / f.stats.activations) * 100) : 0;
     return `
     <div class="card p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
@@ -84,7 +84,7 @@ function renderFlowsList(flows) {
       </div>
       <div class="flex items-center gap-3 text-xs text-gray-500">
         <span><i class="fas fa-bolt mr-1 text-indigo-400"></i>${triggerLabel[f.trigger?.type] || 'Keyword'}</span>
-        <span><i class="fas fa-sitemap mr-1 text-gray-300"></i>${f.nodes.length} nodes</span>
+        <span><i class="fas fa-sitemap mr-1 text-gray-300"></i>${f.nodes.length} düğüm</span>
       </div>
       <div class="flex items-center gap-3 text-xs text-gray-500">
         <span title="Activations"><i class="fas fa-play mr-1 text-green-400"></i>${f.stats.activations}</span>
@@ -92,9 +92,9 @@ function renderFlowsList(flows) {
         <span title="Completion rate"><i class="fas fa-percent mr-1 text-gray-300"></i>${rate}%</span>
       </div>
       <div class="flex items-center gap-2 pt-1 border-t border-gray-100">
-        <button onclick="openFlowBuilder('${f._id}')" class="flex-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 py-1.5 px-3 rounded-lg hover:bg-indigo-50 transition-colors"><i class="fas fa-edit mr-1"></i> Edit</button>
-        <button onclick="duplicateFlow('${f._id}')" class="text-xs text-gray-500 hover:text-gray-700 py-1.5 px-2 rounded-lg hover:bg-gray-100 transition-colors" title="Duplicate"><i class="fas fa-copy"></i></button>
-        <button onclick="deleteFlow('${f._id}')" class="text-xs text-red-400 hover:text-red-600 py-1.5 px-2 rounded-lg hover:bg-red-50 transition-colors" title="Delete"><i class="fas fa-trash"></i></button>
+        <button onclick="openFlowBuilder('${f._id}')" class="flex-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 py-1.5 px-3 rounded-lg hover:bg-indigo-50 transition-colors"><i class="fas fa-edit mr-1"></i> Düzenle</button>
+        <button onclick="duplicateFlow('${f._id}')" class="text-xs text-gray-500 hover:text-gray-700 py-1.5 px-2 rounded-lg hover:bg-gray-100 transition-colors" title="Çoğalt"><i class="fas fa-copy"></i></button>
+        <button onclick="deleteFlow('${f._id}')" class="text-xs text-red-400 hover:text-red-600 py-1.5 px-2 rounded-lg hover:bg-red-50 transition-colors" title="Sil"><i class="fas fa-trash"></i></button>
       </div>
     </div>`;
   }).join('');
@@ -103,13 +103,13 @@ function renderFlowsList(flows) {
 async function newFlow() {
   try {
     const flow = await apiFetch('/crm/flows', 'POST', {
-      name: 'Untitled Flow', description: '', status: 'draft',
+      name: 'İsimsiz Akış', description: '', status: 'draft',
       trigger: { type: 'keyword', keywords: [], tagName: '' },
       nodes: [], edges: [],
     });
     await openFlowBuilder(flow._id);
   } catch {
-    showToast('Failed to create flow', 'error');
+    showToast('Akış oluşturulamadı', 'error');
   }
 }
 
@@ -117,24 +117,24 @@ async function duplicateFlow(id) {
   try {
     const src = await apiFetch(`/crm/flows/${id}`);
     await apiFetch('/crm/flows', 'POST', {
-      name: `Copy of ${src.name}`, description: src.description,
+      name: `${src.name} kopyası`, description: src.description,
       trigger: src.trigger, nodes: src.nodes, edges: src.edges, status: 'draft',
     });
-    showToast('Flow duplicated', 'success');
+    showToast('Akış çoğaltıldı', 'success');
     loadFlows();
   } catch {
-    showToast('Failed to duplicate flow', 'error');
+    showToast('Akış çoğaltılamadı', 'error');
   }
 }
 
 async function deleteFlow(id) {
-  if (!confirm('Delete this flow? Active sessions will be cancelled.')) return;
+  if (!confirm('Bu akış silinsin mi? Aktif oturumlar iptal edilecek.')) return;
   try {
     await apiFetch(`/crm/flows/${id}`, 'DELETE');
-    showToast('Flow deleted', 'success');
+    showToast('Akış silindi', 'success');
     loadFlows();
   } catch {
-    showToast('Failed to delete flow', 'error');
+    showToast('Akış silinemedi', 'error');
   }
 }
 
@@ -177,12 +177,12 @@ async function openFlowBuilder(flowId) {
     renderAll();
     renderTriggerConfig();
   } catch {
-    showToast('Failed to open flow', 'error');
+    showToast('Akış açılamadı', 'error');
   }
 }
 
 function exitFlowBuilder() {
-  if (fb.dirty && !confirm('You have unsaved changes. Leave without saving?')) return;
+  if (fb.dirty && !confirm('Kaydedilmemiş değişiklikleriniz var. Kaydetmeden çıkmak istiyor musunuz?')) return;
   document.getElementById('flow-builder-overlay').style.display = 'none';
   cleanupBuilderEvents();
   loadFlows();
@@ -190,7 +190,7 @@ function exitFlowBuilder() {
 
 // ─── Save / Publish ─────────────────────────────────────────────────────────
 async function saveFlow() {
-  const name = document.getElementById('flow-name-input').value.trim() || 'Untitled Flow';
+  const name = document.getElementById('flow-name-input').value.trim() || 'İsimsiz Akış';
   try {
     await apiFetch(`/crm/flows/${fb.flowId}`, 'PUT', {
       name, description: '', trigger: fb.trigger,
@@ -198,9 +198,9 @@ async function saveFlow() {
     });
     fb.dirty = false;
     document.getElementById('builder-save-indicator').classList.add('hidden');
-    showToast('Flow saved', 'success');
+    showToast('Akış kaydedildi', 'success');
   } catch {
-    showToast('Failed to save flow', 'error');
+    showToast('Akış kaydedilemedi', 'error');
   }
 }
 
@@ -209,20 +209,20 @@ async function togglePublishFlow() {
     const flow = await apiFetch(`/crm/flows/${fb.flowId}/publish`, 'PATCH');
     fb.status = flow.status;
     updateBuilderStatusBadge();
-    showToast(flow.status === 'published' ? 'Flow published' : 'Flow unpublished', 'success');
+    showToast(flow.status === 'published' ? 'Akış yayımlandı' : 'Akış yayımdan kaldırıldı', 'success');
   } catch {
-    showToast('Failed to toggle publish', 'error');
+    showToast('Yayım durumu değiştirilemedi', 'error');
   }
 }
 
 async function testSendFlow() {
-  const phone = prompt('Enter phone number to test this flow:');
+  const phone = prompt('Bu akışı test etmek için telefon numarası girin:');
   if (!phone) return;
   try {
     const r = await apiFetch(`/crm/flows/${fb.flowId}/test-send`, 'POST', { phone });
-    showToast(r.message || 'Test session created', 'success');
+    showToast(r.message || 'Test oturumu oluşturuldu', 'success');
   } catch {
-    showToast('Failed to create test session', 'error');
+    showToast('Test oturumu oluşturulamadı', 'error');
   }
 }
 
@@ -232,14 +232,14 @@ function updateBuilderStatusBadge() {
   const lbl   = document.getElementById('publish-btn-label');
   if (fb.status === 'published') {
     badge.className  = 'text-xs px-2 py-0.5 rounded-full font-semibold bg-green-100 text-green-700';
-    badge.textContent = 'Published';
+    badge.textContent = 'Yayımlandı';
     btn.className = btn.className.replace('bg-gray-400 hover:bg-gray-500', 'bg-red-500 hover:bg-red-600');
     btn.className = btn.className.includes('bg-red') ? btn.className : btn.className + ' bg-red-500 hover:bg-red-600';
-    lbl.textContent = 'Unpublish';
+    lbl.textContent = 'Yayımdan Kaldır';
   } else {
     badge.className  = 'text-xs px-2 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-500';
-    badge.textContent = 'Draft';
-    lbl.textContent = 'Publish';
+    badge.textContent = 'Taslak';
+    lbl.textContent = 'Yayımla';
   }
 }
 
@@ -376,7 +376,7 @@ function renderNodes() {
         <span class="flex-1 truncate">${escHtml(lbl)}</span>
         <button onclick="deleteNode('${node.id}')" onmousedown="event.stopPropagation()" style="opacity:.7;background:none;border:none;color:#fff;cursor:pointer;padding:0 2px;font-size:10px;line-height:1;" title="Delete"><i class="fas fa-times"></i></button>
       </div>
-      <div class="flow-node-body" onclick="selectNode('${node.id}')">${escHtml(summary) || '<span style="opacity:.4">Click to configure</span>'}</div>
+      <div class="flow-node-body" onclick="selectNode('${node.id}')">${escHtml(summary) || '<span style="opacity:.4">Yapılandırmak için tıklayın</span>'}</div>
       <div style="position:relative;height:0;">
         <div class="port port-in" data-node="${node.id}" data-handle="in" onmouseup="portMouseup(event,'${node.id}')"></div>
       </div>
@@ -395,9 +395,9 @@ function getNodeSummary(node) {
     case 'delay':        return `⏱ ${d.minutes || 0}m ${d.seconds || 0}s`;
     case 'set_variable': return `{{${d.variable || '?'}}} = ${d.value || ''}`;
     case 'score':        return `${d.points >= 0 ? '+' : ''}${d.points || 0} pts`;
-    case 'jump':         return d.flowId ? 'Jump to another flow' : '(no flow selected)';
-    case 'transfer':     return d.note || 'Transfer to inbox';
-    case 'end':          return d.text || 'End conversation';
+    case 'jump':         return d.flowId ? 'Başka bir akışa atla' : '(akış seçilmedi)';
+    case 'transfer':     return d.note || 'Gelen kutusuna aktar';
+    case 'end':          return d.text || 'Konuşmayı sonlandır';
     default:             return '';
   }
 }
@@ -745,13 +745,13 @@ function renderPropsPanel(node) {
     markDirty();
     // Update summary on node card
     const nodeEl = document.querySelector(`.flow-node[data-id="${node.id}"] .flow-node-body`);
-    if (nodeEl) nodeEl.innerHTML = escHtml(getNodeSummary(node)) || '<span style="opacity:.4">Click to configure</span>';
+    if (nodeEl) nodeEl.innerHTML = escHtml(getNodeSummary(node)) || '<span style="opacity:.4">Yapılandırmak için tıklayın</span>';
   });
 
   switch (node.type) {
     case 'trigger': {
-      const typeEl = field('Trigger Type',
-        `<select><option value="keyword">Keyword</option><option value="any_message">Any Message</option><option value="first_contact">First Contact</option><option value="tag_applied">Tag Applied</option><option value="campaign_reply">Campaign Reply</option></select>`
+      const typeEl = field('Tetikleyici Türü',
+        `<select><option value="keyword">Anahtar Kelime</option><option value="any_message">Herhangi Mesaj</option><option value="first_contact">İlk Temas</option><option value="tag_applied">Etiket Uygulandı</option><option value="campaign_reply">Kampanya Yanıtı</option></select>`
       ).querySelector('select');
       typeEl.value = fb.trigger.type || 'keyword';
       typeEl.addEventListener('change', e => {
@@ -761,8 +761,8 @@ function renderPropsPanel(node) {
         tagWrap.style.display = e.target.value === 'tag_applied' ? '' : 'none';
       });
 
-      const kwWrap = field('Keywords (comma-separated)',
-        `<input type="text" placeholder="hi, hello, start" value="${escHtml((fb.trigger.keywords || []).join(', '))}">`
+      const kwWrap = field('Anahtar Kelimeler (virgülle ayrılmış)',
+        `<input type="text" placeholder="merhaba, başla" value="${escHtml((fb.trigger.keywords || []).join(', '))}">`
       );
       kwWrap.style.display = fb.trigger.type === 'keyword' ? '' : 'none';
       const kwEl = kwWrap.querySelector('input');
@@ -772,66 +772,66 @@ function renderPropsPanel(node) {
         markDirty();
       });
 
-      const tagWrap = field('Tag Name', `<input type="text" placeholder="vip" value="${escHtml(fb.trigger.tagName || '')}">`);
+      const tagWrap = field('Etiket Adı', `<input type="text" placeholder="vip" value="${escHtml(fb.trigger.tagName || '')}">`);
       tagWrap.style.display = fb.trigger.type === 'tag_applied' ? '' : 'none';
       const tagEl = tagWrap.querySelector('input');
       tagEl.addEventListener('input', e => { fb.trigger.tagName = e.target.value; markDirty(); });
       break;
     }
     case 'message': {
-      const el = field('Message Text', `<textarea placeholder="Hello {{name|Friend}}! How can I help you?">${escHtml(node.data.text || '')}</textarea>`).querySelector('textarea');
+      const el = field('Mesaj Metni', `<textarea placeholder="Merhaba {{name|Ziyaretçi}}! Size nasıl yardımcı olabilirim?">${escHtml(node.data.text || '')}</textarea>`).querySelector('textarea');
       upd('text', el);
-      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">Use {{name}}, {{phone}} or {{var|fallback}}</p>');
+      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">{{name}}, {{phone}} veya {{değişken|varsayılan}} kullanın</p>');
       break;
     }
     case 'question': {
-      const el1 = field('Question Text', `<textarea placeholder="What is your name?">${escHtml(node.data.text || '')}</textarea>`).querySelector('textarea');
+      const el1 = field('Soru Metni', `<textarea placeholder="Adınız nedir?">${escHtml(node.data.text || '')}</textarea>`).querySelector('textarea');
       upd('text', el1);
-      const el2 = field('Save reply as variable', `<input type="text" placeholder="answer" value="${escHtml(node.data.variable || 'answer')}">`).querySelector('input');
+      const el2 = field('Yanıtı değişken olarak kaydet', `<input type="text" placeholder="answer" value="${escHtml(node.data.variable || 'answer')}">`).querySelector('input');
       upd('variable', el2);
-      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">Reply is stored as {{answer}} (or your variable name)</p>');
+      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">Yanıt {{answer}} olarak saklanır (veya değişken adınız)</p>');
       break;
     }
     case 'condition': {
-      const el1 = field('Variable to check', `<input type="text" placeholder="answer" value="${escHtml(node.data.variable || '')}">`).querySelector('input');
+      const el1 = field('Kontrol edilecek değişken', `<input type="text" placeholder="answer" value="${escHtml(node.data.variable || '')}">`).querySelector('input');
       upd('variable', el1);
-      const el2 = field('Operator',
-        `<select><option value="equals">equals</option><option value="contains">contains</option><option value="starts_with">starts with</option><option value="not_empty">is not empty</option><option value="is_empty">is empty</option></select>`
+      const el2 = field('İşleç',
+        `<select><option value="equals">eşittir</option><option value="contains">içerir</option><option value="starts_with">başlar</option><option value="not_empty">boş değil</option><option value="is_empty">boş</option></select>`
       ).querySelector('select');
       el2.value = node.data.operator || 'equals';
       upd('operator', el2);
-      const el3 = field('Value', `<input type="text" placeholder="yes" value="${escHtml(node.data.value || '')}">`).querySelector('input');
+      const el3 = field('Değer', `<input type="text" placeholder="evet" value="${escHtml(node.data.value || '')}">`).querySelector('input');
       upd('value', el3);
-      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">Connect <strong>YES</strong> and <strong>NO</strong> output ports to branches</p>');
+      field('', '<p style="font-size:10px;color:#94a3b8;margin:0"><strong>EVET</strong> ve <strong>HAYIR</strong> çıkış portlarını dallara bağlayın</p>');
       break;
     }
     case 'tag': {
-      const el1 = field('Action',
-        `<select><option value="add">Add tag</option><option value="remove">Remove tag</option></select>`
+      const el1 = field('İşlem',
+        `<select><option value="add">Etiket ekle</option><option value="remove">Etiket kaldır</option></select>`
       ).querySelector('select');
       el1.value = node.data.action || 'add';
       upd('action', el1);
-      const el2 = field('Tag Name', `<input type="text" placeholder="vip" value="${escHtml(node.data.tag || '')}">`).querySelector('input');
+      const el2 = field('Etiket Adı', `<input type="text" placeholder="vip" value="${escHtml(node.data.tag || '')}">`).querySelector('input');
       upd('tag', el2);
       break;
     }
     case 'delay': {
-      const el1 = field('Minutes', `<input type="number" min="0" max="60" value="${node.data.minutes || 0}">`).querySelector('input');
+      const el1 = field('Dakika', `<input type="number" min="0" max="60" value="${node.data.minutes || 0}">`).querySelector('input');
       upd('minutes', el1);
-      const el2 = field('Seconds', `<input type="number" min="0" max="59" value="${node.data.seconds || 5}">`).querySelector('input');
+      const el2 = field('Saniye', `<input type="number" min="0" max="59" value="${node.data.seconds || 5}">`).querySelector('input');
       upd('seconds', el2);
-      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">Delays &gt; 60s are paused until next message from contact</p>');
+      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">60 saniyeden uzun gecikmeler, kişiden gelen sonraki mesaja kadar bekletilir</p>');
       break;
     }
     case 'set_variable': {
-      const el1 = field('Variable Name', `<input type="text" placeholder="city" value="${escHtml(node.data.variable || '')}">`).querySelector('input');
+      const el1 = field('Değişken Adı', `<input type="text" placeholder="şehir" value="${escHtml(node.data.variable || '')}">`).querySelector('input');
       upd('variable', el1);
-      const el2 = field('Value', `<input type="text" placeholder="{{answer}}" value="${escHtml(node.data.value || '')}">`).querySelector('input');
+      const el2 = field('Değer', `<input type="text" placeholder="{{answer}}" value="${escHtml(node.data.value || '')}">`).querySelector('input');
       upd('value', el2);
       break;
     }
     case 'score': {
-      const el = field('Points (use − for negative)', `<input type="number" value="${node.data.points ?? 10}">`).querySelector('input');
+      const el = field('Puan (negatif için − kullanın)', `<input type="number" value="${node.data.points ?? 10}">`).querySelector('input');
       upd('points', el);
       break;
     }
@@ -839,18 +839,18 @@ function renderPropsPanel(node) {
       const opts = fb.allFlows.filter(f => f._id !== fb.flowId).map(f =>
         `<option value="${f._id}"${node.data.flowId === f._id ? ' selected' : ''}>${escHtml(f.name)}</option>`
       ).join('');
-      const el = field('Target Flow', `<select><option value="">— select —</option>${opts}</select>`).querySelector('select');
+      const el = field('Hedef Akış', `<select><option value="">— seçin —</option>${opts}</select>`).querySelector('select');
       upd('flowId', el);
       break;
     }
     case 'transfer': {
-      const el = field('Transfer Note (optional)', `<input type="text" placeholder="Transferred to human support" value="${escHtml(node.data.note || '')}">`).querySelector('input');
+      const el = field('Aktarma Notu (opsiyonel)', `<input type="text" placeholder="İnsan desteğine aktarıldı" value="${escHtml(node.data.note || '')}">`).querySelector('input');
       upd('note', el);
-      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">Adds tag <strong>transfer-requested</strong> to contact</p>');
+      field('', '<p style="font-size:10px;color:#94a3b8;margin:0">Kişiye <strong>transfer-requested</strong> etiketi ekler</p>');
       break;
     }
     case 'end': {
-      const el = field('Closing Message (optional)', `<textarea placeholder="Thank you! Have a great day.">${escHtml(node.data.text || '')}</textarea>`).querySelector('textarea');
+      const el = field('Kapanış Mesajı (opsiyonel)', `<textarea placeholder="Teşekkürler! İyi günler.">${escHtml(node.data.text || '')}</textarea>`).querySelector('textarea');
       upd('text', el);
       break;
     }

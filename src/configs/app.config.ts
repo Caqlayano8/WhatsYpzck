@@ -94,7 +94,9 @@ export class AppConfig {
 
     public getSupportedMessageTypes(): string[] {
         return [
-            MessageTypes.TEXT
+            MessageTypes.TEXT,
+            MessageTypes.IMAGE,
+            MessageTypes.LOCATION
         ]
     }
 
