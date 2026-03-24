@@ -4,6 +4,9 @@
  */
 
 import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import bodyParser from 'body-parser';
 import logger from "./configs/logger.config";
 import EnvConfig from "./configs/env.config";
@@ -69,6 +72,7 @@ app.get('/public/js/widget.js', (_req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.sendFile(path.join(process.cwd(), 'public', 'js', 'widget.js'));
 });
+app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE'], allowedHeaders: ['Content-Type','Authorization'] }));
 app.use("/public", express.static("public"));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));

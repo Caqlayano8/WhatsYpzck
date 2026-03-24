@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import { BotManager } from '../../bot.manager';
@@ -35,6 +36,7 @@ import { chatGptCompletion } from '../../utils/ai/chat-gpt.util';
 import { formatTrDateTime } from '../../utils/system/datetime.util';
 import { isLidConversationPhone, normalizeConversationPhone } from '../../utils/whatsapp/conversation-phone.util';
 import crypto from 'crypto';
+import ExcelJS from 'exceljs';
 
 export const router = express.Router();
 
@@ -266,7 +268,7 @@ function contactsToCSV(contacts: any[]): string {
         (c.tags || []).join(';'),
         c.blocked ? '1' : '0', c.archived ? '1' : '0'
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-    return [header, ...rows].join('\n');
+    return '\uFEFF' + [header, ...rows].join('\n');
 }
 
 export default function (botManager: BotManager) {
@@ -355,10 +357,49 @@ export default function (botManager: BotManager) {
     router.get('/contacts/export', authenticate, authorizeAdmin, async (req, res) => {
         try {
             const contacts = await ContactModel.find({ blocked: { $ne: true } }).sort('-lastInteraction');
-            const csv = contactsToCSV(contacts);
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', 'attachment; filename="contacts.csv"');
-            res.send(csv);
+
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'WhatsYpzck CRM';
+            const sheet = workbook.addWorksheet('Kişiler');
+            sheet.columns = [
+                { header: 'Telefon',        key: 'phoneNumber',     width: 20 },
+                { header: 'Ad',             key: 'name',            width: 25 },
+                { header: 'WhatsApp Adı',   key: 'pushName',        width: 25 },
+                { header: 'Dil',            key: 'language',        width: 12 },
+                { header: 'Ülke',           key: 'country',         width: 12 },
+                { header: 'Bölge',          key: 'region',          width: 20 },
+                { header: 'Son Etkileşim',  key: 'lastInteraction', width: 22 },
+                { header: 'Etiketler',      key: 'tags',            width: 30 },
+                { header: 'Engelli',        key: 'blocked',         width: 10 },
+                { header: 'Arşivlendi',     key: 'archived',        width: 12 },
+            ];
+            const headerRow = sheet.getRow(1);
+            headerRow.eachCell(cell => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+            headerRow.height = 20;
+
+            contacts.forEach((c: any) => {
+                sheet.addRow({
+                    phoneNumber:     c.phoneNumber || '',
+                    name:            c.name || '',
+                    pushName:        c.pushName || '',
+                    language:        c.detectedLanguage || '',
+                    country:         c.detectedCountry || '',
+                    region:          c.detectedRegion || '',
+                    lastInteraction: c.lastInteraction ? new Date(c.lastInteraction).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '',
+                    tags:            (c.tags || []).join('; '),
+                    blocked:         c.blocked ? 'Evet' : 'Hayır',
+                    archived:        c.archived ? 'Evet' : 'Hayır',
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', 'attachment; filename="contacts.xlsx"');
+            await workbook.xlsx.write(res);
+            res.end();
         } catch (error) {
             logger.error('Failed to export contacts:', error);
             res.status(500).json({ error: 'Failed to export contacts' });
@@ -577,14 +618,21 @@ export default function (botManager: BotManager) {
         }
     });
 
-    router.post('/auth/login', async (req, res) => {
+    const loginLimiter = rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 dakika
+        max: 10, // 15 dakikada en fazla 10 deneme
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { error: 'Çok fazla giriş denemesi. Lütfen 15 dakika sonra tekrar deneyin.' },
+    });
+    router.post('/auth/login', loginLimiter, async (req, res) => {
         try {
             const { username, password } = req.body;
             const { token, user } = await AuthService.login(username, password);
             res.json({ token, user });
         } catch (error) {
             logger.error('Login failed:', error);
-            res.status(401).json({ error: error.message });
+            res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' });
         }
     });
 
@@ -730,6 +778,57 @@ export default function (botManager: BotManager) {
         } catch (error) {
             logger.error('Failed to update settings:', error);
             res.status(500).json({ error: 'Failed to update settings' });
+        }
+    });
+
+
+    // Maintenance Mode routes
+    router.get('/settings/maintenance', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            let settings = await SettingsModel.findOne().lean() as any;
+            if (!settings) settings = await SettingsModel.create({});
+            const mm = (settings as any).maintenanceMode || {};
+            res.json({
+                enabled: mm.enabled || false,
+                message: mm.message || '',
+                endsAt:  mm.endsAt  || null,
+            });
+        } catch (err) {
+            logger.error('Bakim modu durumu alinamadi:', err);
+            res.status(500).json({ error: 'Bakim modu durumu alinamadi' });
+        }
+    });
+
+    router.post('/settings/maintenance', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled, message, endsAt } = req.body as { enabled: boolean; message?: string; endsAt?: string };
+            const update: any = {
+                'maintenanceMode.enabled': !!enabled,
+                'maintenanceMode.message': message || '',
+                'maintenanceMode.endsAt':  endsAt ? new Date(endsAt) : null,
+            };
+            await SettingsModel.findOneAndUpdate({}, { $set: update }, { upsert: true, new: true });
+            res.json({ success: true, enabled: !!enabled });
+        } catch (err) {
+            logger.error('Bakim modu guncellenemedi:', err);
+            res.status(500).json({ error: 'Bakim modu guncellenemedi' });
+        }
+    });
+
+    // Messages received during maintenance
+    router.get('/messages/maintenance', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const msgs = await MessageModel.find({
+                direction: 'in',
+                receivedDuringMaintenance: true,
+            })
+                .sort({ timestamp: -1 })
+                .limit(100)
+                .lean();
+            res.json(msgs);
+        } catch (err) {
+            logger.error('Bakim mesajlari alinamadi:', err);
+            res.status(500).json({ error: 'Mesajlar alinamadi' });
         }
     });
 
@@ -1051,34 +1150,72 @@ export default function (botManager: BotManager) {
             res.json(users);
         } catch (error) {
             logger.error('Failed to fetch users:', error);
-            res.status(500).json({ error: 'Failed to fetch users' });
+            res.status(500).json({ error: 'Kullanıcılar alınamadı' });
         }
     });
 
     router.put('/users/:id', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Cannot change your own role' });
-            const { role } = req.body;
-            const user = await UserModel.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
-            if (!user) return res.status(404).json({ error: 'User not found' });
-            await addAuditLog(req.user.userId, req.user.username || '', 'user.role', 'user', req.params.id, { role });
+            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Kendi rolünüzü değiştiremezsiniz' });
+            const { role, permissions, displayName, phone, isActive } = req.body;
+            const update: Record<string, any> = {};
+            if (role !== undefined) update.role = role;
+            if (permissions !== undefined) update.permissions = permissions;
+            if (displayName !== undefined) update.displayName = displayName;
+            if (phone !== undefined) update.phone = phone;
+            if (isActive !== undefined) update.isActive = isActive;
+            const user = await UserModel.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'user.update', 'user', req.params.id, update);
             res.json(user);
         } catch (error) {
             logger.error('Failed to update user:', error);
-            res.status(500).json({ error: 'Failed to update user' });
+            res.status(500).json({ error: 'Kullanıcı güncellenemedi' });
+        }
+    });
+
+    router.put('/users/:id/permissions', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { permissions } = req.body;
+            if (!permissions || typeof permissions !== 'object') return res.status(400).json({ error: 'Geçersiz izin verisi' });
+            const user = await UserModel.findByIdAndUpdate(req.params.id, { permissions }, { new: true }).select('-password');
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'user.permissions', 'user', req.params.id, { permissions });
+            res.json(user);
+        } catch (error) {
+            logger.error('Failed to update permissions:', error);
+            res.status(500).json({ error: 'İzinler güncellenemedi' });
         }
     });
 
     router.delete('/users/:id', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Cannot delete your own account' });
+            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Kendi hesabınızı silemezsiniz' });
             const user = await UserModel.findByIdAndDelete(req.params.id);
-            if (!user) return res.status(404).json({ error: 'User not found' });
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
             await addAuditLog(req.user.userId, req.user.username || '', 'user.delete', 'user', req.params.id, { username: user.username });
             res.json({ success: true });
         } catch (error) {
             logger.error('Failed to delete user:', error);
-            res.status(500).json({ error: 'Failed to delete user' });
+            res.status(500).json({ error: 'Kullanıcı silinemedi' });
+        }
+    });
+
+    // Saha ekibi: arıza durum güncelleme
+    router.patch('/incidents/:id/status', authenticate, async (req, res) => {
+        try {
+            const perms = (req.user as any).permissions || {};
+            if (req.user.role !== 'admin' && !perms.canUpdateIncidents) return res.status(403).json({ error: 'Yetersiz yetki' });
+            const { status, techNote } = req.body;
+            const update: Record<string, any> = {};
+            if (status) update.status = status;
+            if (techNote) update.techNote = techNote;
+            const incident = await IncidentModel.findByIdAndUpdate(req.params.id, update, { new: true });
+            if (!incident) return res.status(404).json({ error: 'Arıza kaydı bulunamadı' });
+            res.json(incident);
+        } catch (error) {
+            logger.error('Failed to update incident status:', error);
+            res.status(500).json({ error: 'Arıza güncellenemedi' });
         }
     });
 
@@ -1088,7 +1225,11 @@ export default function (botManager: BotManager) {
             const { page = 1, limit = 30, action = '', resource = '' } = req.query;
             const skip = (Number(page) - 1) * Number(limit);
             const query: any = {};
-            if (action) query.action = { $regex: action, $options: 'i' };
+            if (action) {
+                // ReDoS koruması: özel regex karakterlerini escape et
+                const safeAction = String(action).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 50);
+                query.action = { $regex: safeAction, $options: 'i' };
+            }
             if (resource) query.resource = resource;
             const [logs, total] = await Promise.all([
                 AuditLogModel.find(query).sort({ timestamp: -1 }).skip(skip).limit(Number(limit)),
@@ -1513,15 +1654,39 @@ export default function (botManager: BotManager) {
         try {
             const campaign = await CampaignModel.findById(req.params.id).select('name deliveryReport');
             if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
-            const header = 'phone,status,error,sentAt,repliedAt';
-            const rows = campaign.deliveryReport.map(r => [
-                r.phone, r.status, r.error || '', r.sentAt ? new Date(r.sentAt).toISOString() : '',
-                (r as any).repliedAt ? new Date((r as any).repliedAt).toISOString() : ''
-            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-            const csv = [header, ...rows].join('\n');
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', `attachment; filename="delivery-report-${req.params.id}.csv"`);
-            res.send(csv);
+
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'WhatsYpzck CRM';
+            const sheet = workbook.addWorksheet('Teslimat Raporu');
+            sheet.columns = [
+                { header: 'Telefon',         key: 'phone',     width: 20 },
+                { header: 'Durum',           key: 'status',    width: 15 },
+                { header: 'Hata',            key: 'error',     width: 35 },
+                { header: 'Gönderilme',      key: 'sentAt',    width: 22 },
+                { header: 'Yanıtlanma',      key: 'repliedAt', width: 22 },
+            ];
+            const headerRow = sheet.getRow(1);
+            headerRow.eachCell(cell => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+            headerRow.height = 20;
+
+            campaign.deliveryReport.forEach((r: any) => {
+                sheet.addRow({
+                    phone:     r.phone || '',
+                    status:    r.status || '',
+                    error:     r.error || '',
+                    sentAt:    r.sentAt ? new Date(r.sentAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '',
+                    repliedAt: r.repliedAt ? new Date(r.repliedAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '',
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="delivery-report-${req.params.id}.xlsx"`);
+            await workbook.xlsx.write(res);
+            res.end();
         } catch (error) {
             logger.error('Failed to export delivery report:', error);
             res.status(500).json({ error: 'Failed to export delivery report' });
@@ -2339,7 +2504,12 @@ ${transcript}`;
     });
 
     // Public: submit message from widget visitor
-    router.post('/widget/chat', async (req, res) => {
+    const widgetChatLimiter = rateLimit({
+        windowMs: 60 * 1000, // 1 dakika
+        max: 10,
+        message: { error: 'Çok fazla mesaj gönderdiniz. Lütfen bekleyin.' },
+    });
+    router.post('/widget/chat', widgetChatLimiter, async (req, res) => {
         try {
             const { widgetId, visitorName, visitorSessionId, message, pageUrl } = req.body;
             if (!widgetId || !message?.trim()) {
