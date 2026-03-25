@@ -2177,7 +2177,7 @@ function openSecurityModal() {
   // Mevcut kullanıcı bilgilerini yükle
   const token = localStorage.getItem('token');
   if (!token) return;
-  fetch('/crm/auth/check', { headers: { Authorization: 'Bearer ' + token } })
+  fetch('/crm/api/v1/auth/check', { headers: { Authorization: 'Bearer ' + token } })
     .then(r => r.json())
     .then(data => {
       const u = data.user || {};
