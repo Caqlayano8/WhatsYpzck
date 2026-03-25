@@ -1,4 +1,13 @@
 const TR_LOCALE = 'tr-TR';
+// Resolves a relative media URL to full URL using server base
+function resolveMediaUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const base = window.location.origin; // e.g. http://localhost:3500
+  return base + (url.startsWith('/') ? '' : '/') + url;
+}
+window.resolveMediaUrl = resolveMediaUrl;
+
 const TR_TIME_ZONE = 'Europe/Istanbul';
 
 // Toast notifications
@@ -97,9 +106,20 @@ function buildBubble(m) {
   const rowCls    = isOut ? 'msg-row-out' : 'msg-row-in';
   const bubbleCls = isOut ? 'msg-bubble msg-bubble-out' : 'msg-bubble msg-bubble-in';
   const timeColor = isOut ? '#5a7a5c' : '#999';
+
+  let contentHtml = '';
+  if (m.type === 'image' && m.mediaUrl) {
+    contentHtml = `<img src="${escHtml(m.mediaUrl)}" alt="Fotoğraf" style="max-width:220px;border-radius:8px;cursor:pointer;display:block;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`;
+    if (m.body && m.body !== '[Empty message]') {
+      contentHtml += `<div style="margin-top:4px;">${escHtml(m.body)}</div>`;
+    }
+  } else {
+    contentHtml = escHtml(m.body);
+  }
+
   return `<div class="${rowCls}">
     <div class="${bubbleCls}">
-      ${escHtml(m.body)}
+      ${contentHtml}
       <div class="msg-time" style="color:${timeColor}">${fmtMsgTime(m.timestamp)}</div>
     </div>
   </div>`;
