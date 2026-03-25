@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>WhatsYpzck Kullanıcı Paneli</title>
+  <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="icon" href="/public/favicon.png">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f8fafc; color: #1e293b; min-height: 100vh; }
+
+    /* ── Topbar ── */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: 56px;
+      background: #fff;
+      border-bottom: 1.5px solid #e2e8f0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px;
+      box-shadow: 0 1px 4px rgba(15,23,42,0.05);
+    }
+    .topbar-brand { display: flex; align-items: center; gap: 10px; }
+    .topbar-logo { width: 34px; height: 34px; background: #4f46e5; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+    .topbar-title { font-weight: 700; font-size: 15px; color: #1e293b; }
+    .topbar-subtitle { font-size: 11px; color: #94a3b8; }
+    .topbar-actions { display: flex; align-items: center; gap: 8px; }
+    .topbar-btn {
+      padding: 6px 10px; border: none; border-radius: 8px;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; gap: 5px;
+      transition: background 0.15s;
+    }
+    .topbar-btn.security { background: #eef2ff; color: #4f46e5; }
+    .topbar-btn.security:hover { background: #e0e7ff; }
+    .topbar-btn.logout { background: #fef2f2; color: #dc2626; }
+    .topbar-btn.logout:hover { background: #fee2e2; }
+
+    /* ── Bottom Nav (mobile) ── */
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+      background: #fff; border-top: 1.5px solid #e2e8f0;
+      display: flex; align-items: stretch;
+      padding: 0; height: 60px;
+      box-shadow: 0 -2px 12px rgba(15,23,42,0.06);
+    }
+    .bottom-nav-item {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; cursor: pointer; color: #94a3b8; font-size: 10px; font-weight: 500;
+      border: none; background: none; transition: color 0.15s;
+      padding: 6px 4px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .bottom-nav-item i { font-size: 18px; }
+    .bottom-nav-item.active { color: #4f46e5; }
+    .bottom-nav-item:hover { color: #6366f1; }
+
+    /* ── Main Content ── */
+    .main-content {
+      padding-top: 56px;
+      padding-bottom: 68px;
+      min-height: 100vh;
+    }
+    .tab-panel { display: none; padding: 16px; }
+    .tab-panel.active { display: block; }
+
+    /* ── Cards ── */
+    .card {
+      background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px;
+      padding: 16px; margin-bottom: 12px;
+      box-shadow: 0 1px 4px rgba(15,23,42,0.04);
+    }
+    .card-title { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 10px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-box { background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 14px 12px; text-align: center; }
+    .stat-value { font-size: 22px; font-weight: 700; color: #1e293b; }
+    .stat-label { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+    /* Badge */
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-green { background: #dcfce7; color: #16a34a; }
+    .badge-yellow { background: #fef9c3; color: #ca8a04; }
+    .badge-red { background: #fee2e2; color: #dc2626; }
+    .badge-blue { background: #dbeafe; color: #2563eb; }
+    .badge-gray { background: #f1f5f9; color: #64748b; }
+
+    /* List items */
+    .list-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; background: #f8fafc; border: 1.5px solid #e2e8f0;
+      border-radius: 10px; margin-bottom: 8px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .list-item:hover { background: #f1f5f9; }
+    .list-item-title { font-size: 13px; font-weight: 600; color: #1e293b; }
+    .list-item-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+    /* Empty state */
+    .empty-state { text-align: center; padding: 40px 20px; color: #94a3b8; }
+    .empty-state i { font-size: 36px; margin-bottom: 10px; display: block; }
+    .empty-state p { font-size: 13px; }
+
+    /* Loading */
+    .loading-spinner {
+      display: flex; align-items: center; justify-content: center;
+      padding: 40px; color: #94a3b8; gap: 8px; font-size: 13px;
+    }
+
+    /* Filter bar */
+    .filter-bar { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 4px; }
+    .filter-btn {
+      flex-shrink: 0; padding: 5px 12px; border: 1.5px solid #e2e8f0; border-radius: 999px;
+      font-size: 12px; font-weight: 600; cursor: pointer; background: #fff; color: #64748b;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .filter-btn.active { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+    .filter-btn:hover:not(.active) { background: #f1f5f9; }
+
+    /* Search */
+    .search-box {
+      width: 100%; border: 1.5px solid #e2e8f0; border-radius: 10px;
+      padding: 9px 12px 9px 36px; font-size: 13px; color: #1e293b; outline: none;
+      background: #fff; margin-bottom: 12px;
+    }
+    .search-box:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .search-wrap { position: relative; }
+    .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 13px; }
+
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.55); align-items: center; justify-content: center; padding: 16px; }
+    .modal-box { background: #fff; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.25); padding: 24px; width: 100%; max-width: 420px; max-height: 90vh; overflow-y: auto; }
+
+    /* 2FA toggle */
+    .toggle-track { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
+    .toggle-track input { opacity: 0; width: 0; height: 0; }
+
+    /* Desktop sidebar (≥768px) */
+    @media (min-width: 768px) {
+      body { display: flex; }
+      .bottom-nav { display: none; }
+      .sidebar {
+        position: fixed; left: 0; top: 0; bottom: 0; width: 220px;
+        background: #fff; border-right: 1.5px solid #e2e8f0;
+        display: flex; flex-direction: column; z-index: 50;
+        padding: 16px 12px;
+        box-shadow: 2px 0 8px rgba(15,23,42,0.04);
+      }
+      .sidebar-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding: 8px 4px; }
+      .sidebar-logo { width: 36px; height: 36px; background: #4f46e5; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+      .sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+      .sidebar-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 9px 12px; border-radius: 10px; cursor: pointer;
+        color: #64748b; font-size: 13px; font-weight: 500;
+        border: none; background: none; width: 100%; text-align: left;
+        transition: all 0.15s;
+      }
+      .sidebar-item:hover { background: #f1f5f9; color: #1e293b; }
+      .sidebar-item.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+      .sidebar-item i { width: 18px; text-align: center; font-size: 15px; }
+      .sidebar-footer { padding-top: 12px; border-top: 1.5px solid #e2e8f0; display: flex; flex-direction: column; gap: 4px; }
+      .sidebar-footer-btn {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 12px; border-radius: 10px; cursor: pointer;
+        font-size: 12px; font-weight: 600; border: none; background: none; width: 100%; text-align: left;
+        transition: all 0.15s;
+      }
+      .sidebar-footer-btn.security { color: #4f46e5; }
+      .sidebar-footer-btn.security:hover { background: #eef2ff; }
+      .sidebar-footer-btn.logout { color: #dc2626; }
+      .sidebar-footer-btn.logout:hover { background: #fef2f2; }
+      .topbar { left: 220px; }
+      .main-content { margin-left: 220px; padding-bottom: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Sidebar (Desktop) ── -->
+  <aside class="sidebar" id="sidebar" style="display:none;">
+    <div class="sidebar-brand">
+      <div class="sidebar-logo">
+        <i class="fab fa-whatsapp text-white" style="font-size:18px;"></i>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:14px;color:#1e293b;">WhatsYpzck</div>
+        <div style="font-size:11px;color:#94a3b8;" id="sb-username-label">Kullanıcı Paneli</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav" id="sidebar-nav">
+      <!-- Dinamik olarak doldurulur -->
+    </nav>
+    <div class="sidebar-footer">
+      <button class="sidebar-footer-btn security" onclick="openSecurityModal()">
+        <i class="fas fa-shield-alt"></i> Güvenlik / 2FA
+      </button>
+      <button class="sidebar-footer-btn logout" onclick="doLogout()">
+        <i class="fas fa-sign-out-alt"></i> Çıkış Yap
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Topbar ── -->
+  <div class="topbar">
+    <div class="topbar-brand">
+      <div class="topbar-logo">
+        <i class="fab fa-whatsapp text-white" style="font-size:16px;"></i>
+      </div>
+      <div>
+        <div class="topbar-title">WhatsYpzck</div>
+        <div class="topbar-subtitle" id="topbar-username">Yükleniyor…</div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="topbar-btn security" onclick="openSecurityModal()">
+        <i class="fas fa-shield-alt"></i> <span class="hidden md:inline">Güvenlik</span>
+      </button>
+      <button class="topbar-btn logout" onclick="doLogout()">
+        <i class="fas fa-sign-out-alt"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Main Content ── -->
+  <div class="main-content" id="main-content">
+
+    <!-- Dashboard -->
+    <div id="tab-dashboard" class="tab-panel active">
+      <div class="card">
+        <div class="card-title"><i class="fas fa-home mr-2 text-indigo-500"></i>Hoş Geldiniz</div>
+        <p style="font-size:13px;color:#64748b;" id="dash-welcome">Panele hoş geldiniz.</p>
+      </div>
+      <div class="stat-grid" id="dash-stats">
+        <!-- Dinamik -->
+      </div>
+    </div>
+
+    <!-- Arızalar -->
+    <div id="tab-incidents" class="tab-panel">
+      <div class="search-wrap">
+        <i class="fas fa-search search-icon"></i>
+        <input class="search-box" id="inc-search" type="text" placeholder="Arıza ara..." oninput="filterIncidents()">
+      </div>
+      <div class="filter-bar">
+        <button class="filter-btn active" data-status="all" onclick="setIncidentFilter('all',this)">Tümü</button>
+        <button class="filter-btn" data-status="ALINDI" onclick="setIncidentFilter('ALINDI',this)">Açık</button>
+        <button class="filter-btn" data-status="ISLEME_ALINDI" onclick="setIncidentFilter('ISLEME_ALINDI',this)">Devam Ediyor</button>
+        <button class="filter-btn" data-status="COZUMLENDI" onclick="setIncidentFilter('COZUMLENDI',this)">Çözüldü</button>
+        <button class="filter-btn" data-status="KAPATILDI" onclick="setIncidentFilter('KAPATILDI',this)">Kapatıldı</button>
+      </div>
+      <div id="incidents-list">
+        <div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>
+      </div>
+    </div>
+
+    <!-- Sohbetler -->
+    <div id="tab-conversations" class="tab-panel">
+      <div class="search-wrap">
+        <i class="fas fa-search search-icon"></i>
+        <input class="search-box" id="conv-search" type="text" placeholder="Kişi veya mesaj ara..." oninput="filterConversations()">
+      </div>
+      <div id="conversations-list">
+        <div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>
+      </div>
+    </div>
+
+    <!-- Güvenlik (sadece desktop — sidebar üzerinden erişiliyor, burada bilgi kartı) -->
+    <div id="tab-security" class="tab-panel">
+      <div class="card" style="text-align:center;padding:32px;">
+        <div style="width:56px;height:56px;background:#eef2ff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-bottom:14px;">
+          <i class="fas fa-shield-alt" style="color:#4f46e5;font-size:22px;"></i>
+        </div>
+        <div style="font-weight:700;font-size:15px;color:#1e293b;margin-bottom:8px;">Güvenlik Ayarları</div>
+        <p style="font-size:13px;color:#64748b;margin-bottom:18px;">İki adımlı doğrulama (2FA) ve şifre değiştirme işlemleri.</p>
+        <button onclick="openSecurityModal()" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:11px 24px;font-weight:700;font-size:13px;cursor:pointer;" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">
+          <i class="fas fa-shield-alt mr-2"></i>Güvenlik Ayarlarını Aç
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Bottom Nav (Mobile) ── -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <!-- Dinamik olarak doldurulur -->
+  </nav>
+
+  <!-- ═══════════════════════════════════════════════
+       Güvenlik / 2FA Ayarları Modalı
+  ═══════════════════════════════════════════════ -->
+  <div id="security-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:38px;height:38px;background:#eef2ff;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+            <i class="fas fa-shield-halved" style="color:#4f46e5;font-size:16px;"></i>
+          </div>
+          <div>
+            <h3 style="font-weight:700;color:#111827;font-size:15px;margin:0;">Güvenlik Ayarları</h3>
+            <p style="font-size:11px;color:#6b7280;margin:0;" id="sec-username-label"></p>
+          </div>
+        </div>
+        <button onclick="closeSecurityModal()" style="background:none;border:none;font-size:22px;color:#9ca3af;cursor:pointer;">&times;</button>
+      </div>
+
+      <!-- 2FA Toggle Kartı -->
+      <div style="background:#f8fafc;border-radius:14px;border:1.5px solid #e2e8f0;padding:16px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div>
+            <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 2px;">İki Adımlı Doğrulama (2FA)</p>
+            <p style="font-size:11px;color:#64748b;margin:0;" id="sec-2fa-desc">Girişte e-postanıza kod gönderilir</p>
+          </div>
+          <label class="toggle-track">
+            <input type="checkbox" id="sec-2fa-toggle" onchange="onTwoFaToggle(this.checked)">
+            <span id="sec-2fa-slider" style="position:absolute;inset:0;background:#d1d5db;border-radius:999px;transition:.3s;"></span>
+            <span id="sec-2fa-knob" style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></span>
+          </label>
+        </div>
+
+        <!-- E-posta girişi -->
+        <div id="sec-email-row" style="display:none;">
+          <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">E-posta Adresi (kod buraya gönderilir)</label>
+          <input id="sec-email-input" type="email" placeholder="ornek@mail.com"
+            style="width:100%;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;box-sizing:border-box;"
+            onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+          <p style="font-size:10px;color:#94a3b8;margin:4px 0 0;">2FA aktif etmek için geçerli bir e-posta girilmeli.</p>
+        </div>
+
+        <!-- Yöntem seçici -->
+        <div id="sec-2fa-method-row" style="display:none;margin-top:8px;">
+          <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">Doğrulama Yöntemi</label>
+          <div style="display:flex;gap:8px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;flex:1;" id="sec-method-email-label">
+              <input type="radio" name="sec-2fa-method" value="email" id="sec-method-email" onchange="onMethodChange('email')" checked> 📧 E-posta OTP
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;flex:1;" id="sec-method-totp-label">
+              <input type="radio" name="sec-2fa-method" value="totp" id="sec-method-totp" onchange="onMethodChange('totp')"> 🔐 Authenticator
+            </label>
+          </div>
+        </div>
+
+        <!-- TOTP QR Kod -->
+        <div id="sec-totp-row" style="display:none;margin-top:10px;text-align:center;">
+          <p style="font-size:12px;color:#475569;margin:0 0 8px;">Google Authenticator uygulamasını açın ve QR kodu okutun:</p>
+          <img id="sec-totp-qr" src="" alt="QR Kod" style="width:160px;height:160px;border:1px solid #e2e8f0;border-radius:8px;"/>
+          <p style="font-size:10px;color:#94a3b8;margin:6px 0 0;">QR okutulduktan sonra uygulamadaki 6 haneli kodu girin ve "Etkinleştir" butonuna basın.</p>
+          <input id="sec-totp-code" type="text" placeholder="6 haneli kod" maxlength="6"
+            style="width:140px;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:16px;color:#1e293b;outline:none;text-align:center;margin-top:8px;letter-spacing:4px;"
+            onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+          <br><button onclick="activateTotp()" style="margin-top:8px;padding:8px 18px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;">✅ Etkinleştir</button>
+          <p id="sec-totp-msg" style="font-size:11px;color:#16a34a;margin:4px 0 0;display:none;"></p>
+        </div>
+      </div>
+
+      <!-- Şifre Değiştir -->
+      <div style="background:#f8fafc;border-radius:14px;border:1.5px solid #e2e8f0;padding:14px;margin-bottom:16px;">
+        <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 6px;">Şifre Değiştir</p>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <input id="sec-old-pw" type="password" placeholder="Mevcut şifre" autocomplete="current-password"
+            style="border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;"
+            onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+          <input id="sec-new-pw" type="password" placeholder="Yeni şifre (min. 6 karakter)" autocomplete="new-password"
+            style="border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;"
+            onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+        </div>
+      </div>
+
+      <p id="sec-msg" style="font-size:12px;text-align:center;min-height:16px;margin:0 0 12px;"></p>
+      <button onclick="saveSecuritySettings()" style="width:100%;background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">
+        Kaydet
+      </button>
+    </div>
+  </div>
+
+  <script>
+  // ── Auth kontrol ─────────────────────────────────────────────
+  const API_TOKEN = localStorage.getItem('token');
+  const API_BASE_OVERRIDE = (localStorage.getItem('panel_api_base') || '').trim();
+  const apiPath = (path) => (API_BASE_OVERRIDE ? API_BASE_OVERRIDE.replace(/\/$/, '') : '') + path;
+  if (!API_TOKEN) window.location.href = '/panel/login';
+
+  let _currentUser = null;
+  let _incidentFilter = 'all';
+  let _allIncidents = [];
+  let _allConversations = [];
+
+  // ── Kullanıcı bilgilerini yükle ──────────────────────────────
+  async function loadCurrentUser() {
+    try {
+      const res = await fetch(apiPath('/crm/auth/check'), {
+        headers: { Authorization: 'Bearer ' + API_TOKEN }
+      });
+      if (!res.ok) { localStorage.removeItem('token'); window.location.href = '/panel/login'; return; }
+      const data = await res.json();
+      _currentUser = data.user || {};
+      buildUI();
+    } catch (e) {
+      localStorage.removeItem('token');
+      window.location.href = '/panel/login';
+    }
+  }
+
+  function buildUI() {
+    const u = _currentUser;
+    const name = u.displayName || u.username || 'Kullanıcı';
+    document.getElementById('topbar-username').textContent = '@' + (u.username || '');
+    document.getElementById('sb-username-label').textContent = '@' + (u.username || '');
+
+    // Dashboard hoşgeldin
+    document.getElementById('dash-welcome').textContent =
+      'Merhaba, ' + name + '! Panel üzerinden görevlerinizi yönetebilirsiniz.';
+
+    const perms = u.permissions || {};
+    const isAdmin = u.role === 'admin';
+
+    // Tab tanımları — izinlere göre filtrelenecek
+    const tabs = [
+      { id: 'dashboard', icon: 'fa-home', label: 'Anasayfa', always: true },
+      { id: 'incidents', icon: 'fa-triangle-exclamation', label: 'Arızalar', perm: isAdmin || perms.canViewIncidents },
+      { id: 'conversations', icon: 'fa-comments', label: 'Sohbetler', perm: isAdmin || perms.canViewConversations },
+      { id: 'security', icon: 'fa-shield-alt', label: 'Güvenlik', always: true },
+    ].filter(t => t.always || t.perm);
+
+    // Build bottom nav
+    const bn = document.getElementById('bottom-nav');
+    bn.innerHTML = tabs.map(t => `
+      <button class="bottom-nav-item ${t.id === 'dashboard' ? 'active' : ''}" id="btn-${t.id}" onclick="switchTab('${t.id}')">
+        <i class="fas ${t.icon}"></i>
+        <span>${t.label}</span>
+      </button>
+    `).join('');
+
+    // Build sidebar nav
+    const sbn = document.getElementById('sidebar-nav');
+    sbn.innerHTML = tabs.map(t => `
+      <button class="sidebar-item ${t.id === 'dashboard' ? 'active' : ''}" id="sb-${t.id}" onclick="switchTab('${t.id}')">
+        <i class="fas ${t.icon}"></i> ${t.label}
+      </button>
+    `).join('');
+
+    // Desktop sidebar göster
+    if (window.innerWidth >= 768) {
+      document.getElementById('sidebar').style.display = 'flex';
+      document.getElementById('sidebar').style.flexDirection = 'column';
+    }
+
+    // Dashboard istatistikler
+    loadDashboardStats(perms, isAdmin);
+
+    // Admin ise admin paneline yönlendirme seçeneği göster
+    if (isAdmin) {
+      const adminCard = document.createElement('div');
+      adminCard.className = 'card';
+      adminCard.style.cssText = 'border-color:#e0e7ff;background:#f5f3ff;';
+      adminCard.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:36px;height:36px;background:#4f46e5;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <i class="fas fa-shield-alt text-white" style="font-size:14px;"></i>
+          </div>
+          <div>
+            <div style="font-weight:600;font-size:13px;color:#1e293b;">Admin Paneli</div>
+            <div style="font-size:11px;color:#64748b;">Tam yönetim erişimi için admin paneline gidin</div>
+          </div>
+          <a href="/admin" style="margin-left:auto;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;">
+            Aç <i class="fas fa-arrow-right ml-1"></i>
+          </a>
+        </div>
+      `;
+      document.getElementById('tab-dashboard').appendChild(adminCard);
+    }
+  }
+
+  async function loadDashboardStats(perms, isAdmin) {
+    const statsEl = document.getElementById('dash-stats');
+    statsEl.innerHTML = '';
+    const stats = [];
+
+    try {
+      if (isAdmin || perms.canViewIncidents) {
+        const r = await fetch(apiPath('/crm/incidents?limit=1'), { headers: { Authorization: 'Bearer ' + API_TOKEN } });
+        if (r.ok) {
+          const d = await r.json();
+          const count = Number(d?.total || (Array.isArray(d?.data) ? d.data.length : 0));
+          stats.push({ label: 'Toplam Arıza', value: count, icon: 'fa-triangle-exclamation', color: '#f59e0b' });
+        }
+      }
+      if (isAdmin || perms.canViewConversations) {
+        const r = await fetch(apiPath('/crm/inbox?page=1&limit=1'), { headers: { Authorization: 'Bearer ' + API_TOKEN } });
+        if (r.ok) {
+          const d = await r.json();
+          const count = Array.isArray(d) ? d.length : Number(d?.total || (Array.isArray(d?.data) ? d.data.length : 0));
+          stats.push({ label: 'Sohbet', value: count, icon: 'fa-comments', color: '#4f46e5' });
+        }
+      }
+    } catch (_) {}
+
+    if (stats.length === 0) {
+      statsEl.innerHTML = '';
+      return;
+    }
+    statsEl.innerHTML = stats.map(s => `
+      <div class="stat-box">
+        <div style="font-size:22px;color:${s.color};margin-bottom:6px;"><i class="fas ${s.icon}"></i></div>
+        <div class="stat-value">${s.value}</div>
+        <div class="stat-label">${s.label}</div>
+      </div>
+    `).join('');
+  }
+
+  // ── Tab geçişi ────────────────────────────────────────────────
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
+
+    document.getElementById('tab-' + tabId)?.classList.add('active');
+    document.getElementById('btn-' + tabId)?.classList.add('active');
+    document.getElementById('sb-' + tabId)?.classList.add('active');
+
+    if (tabId === 'incidents') loadIncidents();
+    if (tabId === 'conversations') loadConversations();
+  }
+
+  // ── Arızalar ──────────────────────────────────────────────────
+  async function loadIncidents() {
+    const el = document.getElementById('incidents-list');
+    el.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>';
+    try {
+      const r = await fetch(apiPath('/crm/incidents?limit=50'), { headers: { Authorization: 'Bearer ' + API_TOKEN } });
+      if (!r.ok) throw new Error('Yüklenemedi');
+      const d = await r.json();
+      _allIncidents = d.incidents || d.data || [];
+      renderIncidents();
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Arızalar yüklenemedi.</p></div>`;
+    }
+  }
+
+  function renderIncidents() {
+    const el = document.getElementById('incidents-list');
+    const search = (document.getElementById('inc-search')?.value || '').toLowerCase();
+    let list = _allIncidents;
+    if (_incidentFilter !== 'all') list = list.filter(i => i.status === _incidentFilter);
+    if (search) list = list.filter(i =>
+      (i.incidentId || i.id || '').toString().toLowerCase().includes(search) ||
+      (i.customerName || '').toLowerCase().includes(search) ||
+      (i.customerPhone || i.phone || '').toLowerCase().includes(search) ||
+      (i.address || '').toLowerCase().includes(search) ||
+      (i.issueSummary || i.issue || '').toLowerCase().includes(search)
+    );
+    if (list.length === 0) {
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-folder-open"></i><p>Arıza bulunamadı.</p></div>';
+      return;
+    }
+    const statusMap = {
+      ALINDI: { label: 'Açık', cls: 'badge-red' },
+      INCELEMEDE: { label: 'İncelemede', cls: 'badge-yellow' },
+      ISLEME_ALINDI: { label: 'Devam Ediyor', cls: 'badge-yellow' },
+      COZUMLENDI: { label: 'Çözüldü', cls: 'badge-green' },
+      KAPATILDI: { label: 'Kapatıldı', cls: 'badge-gray' },
+    };
+    el.innerHTML = list.map(inc => {
+      const s = statusMap[inc.status] || { label: inc.status, cls: 'badge-blue' };
+      const date = inc.createdAt ? new Date(inc.createdAt).toLocaleDateString('tr-TR') : '';
+      return `
+        <div class="list-item">
+          <div style="flex:1;min-width:0;">
+            <div class="list-item-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(inc.issueSummary || inc.issue || 'Arıza kaydı')}</div>
+            <div class="list-item-sub">${escHtml((inc.customerName || 'Bilinmiyor') + ' · #' + (inc.incidentId || inc.id || ''))}${date ? ' · ' + date : ''}</div>
+          </div>
+          <span class="badge ${s.cls}" style="margin-left:10px;flex-shrink:0;">${s.label}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function setIncidentFilter(status, btn) {
+    _incidentFilter = status;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderIncidents();
+  }
+
+  function filterIncidents() { renderIncidents(); }
+
+  // ── Sohbetler ─────────────────────────────────────────────────
+  async function loadConversations() {
+    const el = document.getElementById('conversations-list');
+    el.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>';
+    try {
+      const r = await fetch(apiPath('/crm/inbox?page=1&limit=50'), { headers: { Authorization: 'Bearer ' + API_TOKEN } });
+      if (!r.ok) throw new Error('Yüklenemedi');
+      const d = await r.json();
+      _allConversations = Array.isArray(d) ? d : (d.conversations || d.data || []);
+      renderConversations();
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><i class="fas fa-comments"></i><p>Sohbetler yüklenemedi.</p></div>`;
+    }
+  }
+
+  function renderConversations() {
+    const el = document.getElementById('conversations-list');
+    const search = (document.getElementById('conv-search')?.value || '').toLowerCase();
+    let list = _allConversations;
+    if (search) list = list.filter(c =>
+      ((c.contact && c.contact.name) || c.name || c.contactName || '').toLowerCase().includes(search) ||
+      (c.lastMessage || '').toLowerCase().includes(search) ||
+      (c.phoneNumber || c.phone || '').toLowerCase().includes(search)
+    );
+    if (list.length === 0) {
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-comments"></i><p>Sohbet bulunamadı.</p></div>';
+      return;
+    }
+    el.innerHTML = list.map(c => {
+      const name = (c.contact && c.contact.name) || c.name || c.contactName || c.phoneNumber || c.phone || 'Bilinmiyor';
+      const last = c.lastMessage || c.lastMessageText || '';
+      const time = (c.lastTimestamp || c.lastMessageAt) ? new Date(c.lastTimestamp || c.lastMessageAt).toLocaleDateString('tr-TR') : '';
+      const unreadCount = Number(c.unreadCount || c.unread || 0);
+      const unread = unreadCount > 0 ? `<span class="badge badge-red" style="margin-left:8px;">${unreadCount}</span>` : '';
+      return `
+        <div class="list-item">
+          <div style="width:38px;height:38px;background:#eef2ff;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:12px;">
+            <i class="fas fa-user" style="color:#4f46e5;font-size:14px;"></i>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;">
+              <div class="list-item-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(name)}</div>
+              ${unread}
+            </div>
+            <div class="list-item-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(last)}</div>
+          </div>
+          ${time ? `<div style="font-size:10px;color:#94a3b8;flex-shrink:0;margin-left:8px;">${time}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function filterConversations() { renderConversations(); }
+
+  // ── Çıkış ─────────────────────────────────────────────────────
+  function doLogout() {
+    localStorage.removeItem('token');
+    window.location.href = '/panel/login';
+  }
+
+  // ── Güvenlik Modal ────────────────────────────────────────────
+  function openSecurityModal() {
+    const modal = document.getElementById('security-modal');
+    modal.style.display = 'flex';
+    document.getElementById('sec-msg').textContent = '';
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    fetch(apiPath('/crm/auth/check'), { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.json())
+      .then(data => {
+        const u = data.user || {};
+        document.getElementById('sec-username-label').textContent = '@' + (u.username || '');
+        const twoFaOn = !!u.twoFactorEnabled;
+        const toggle = document.getElementById('sec-2fa-toggle');
+        toggle.checked = twoFaOn;
+        updateToggleUI(twoFaOn);
+        const methodRow = document.getElementById('sec-2fa-method-row');
+        if (methodRow) methodRow.style.display = twoFaOn ? 'block' : 'none';
+        if (twoFaOn && u.email) document.getElementById('sec-email-input').value = u.email;
+        if (twoFaOn && u.twoFactorMethod === 'totp') {
+          const totpRadio = document.getElementById('sec-method-totp');
+          if (totpRadio) { totpRadio.checked = true; onMethodChange('totp'); }
+        }
+      })
+      .catch(() => {});
+  }
+
+  function closeSecurityModal() {
+    document.getElementById('security-modal').style.display = 'none';
+    document.getElementById('sec-old-pw').value = '';
+    document.getElementById('sec-new-pw').value = '';
+  }
+
+  function updateToggleUI(on) {
+    const slider = document.getElementById('sec-2fa-slider');
+    const knob   = document.getElementById('sec-2fa-knob');
+    const row    = document.getElementById('sec-email-row');
+    slider.style.background = on ? '#4f46e5' : '#d1d5db';
+    knob.style.transform    = on ? 'translateX(20px)' : 'translateX(0)';
+    row.style.display       = on ? 'block' : 'none';
+  }
+
+  function onTwoFaToggle(checked) {
+    updateToggleUI(checked);
+    const methodRow = document.getElementById('sec-2fa-method-row');
+    if (methodRow) methodRow.style.display = checked ? 'block' : 'none';
+    if (!checked) { onMethodChange('email'); }
+  }
+
+  function onMethodChange(method) {
+    const emailRow = document.getElementById('sec-email-row');
+    const totpRow  = document.getElementById('sec-totp-row');
+    const desc     = document.getElementById('sec-2fa-desc');
+    if (method === 'totp') {
+      if (emailRow) emailRow.style.display = 'none';
+      if (totpRow)  totpRow.style.display  = 'block';
+      if (desc) desc.textContent = 'Girişte Google Authenticator kodu istenir';
+      if (document.getElementById('sec-totp-qr').src === location.origin + '/') loadTotpQr();
+    } else {
+      if (emailRow) emailRow.style.display = 'block';
+      if (totpRow)  totpRow.style.display  = 'none';
+      if (desc) desc.textContent = 'Girişte e-postanıza kod gönderilir';
+    }
+  }
+
+  async function loadTotpQr() {
+    const token = localStorage.getItem('token');
+    const res = await fetch(apiPath('/crm/auth/2fa/totp-setup'), { method:'POST', headers:{ Authorization:'Bearer '+token }});
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('sec-totp-qr').src = data.qrCodeDataUrl;
+  }
+
+  async function activateTotp() {
+    const token = localStorage.getItem('token');
+    const code  = document.getElementById('sec-totp-code').value.trim();
+    const msg   = document.getElementById('sec-totp-msg');
+    if (!code || code.length !== 6) { msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent='6 haneli kod girin.'; return; }
+    const res = await fetch(apiPath('/crm/auth/2fa/totp-activate'), {
+      method:'POST', headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' },
+      body: JSON.stringify({ token: code })
+    });
+    const data = await res.json();
+    msg.style.display = 'block';
+    if (res.ok) { msg.style.color='#16a34a'; msg.textContent='✅ Google Authenticator aktif edildi!'; }
+    else { msg.style.color='#dc2626'; msg.textContent = data.error || 'Hata.'; }
+  }
+
+  async function saveSecuritySettings() {
+    const token = localStorage.getItem('token');
+    const msg   = document.getElementById('sec-msg');
+    msg.style.color = '#64748b';
+    msg.textContent = 'Kaydediliyor...';
+
+    const twoFaEnabled = document.getElementById('sec-2fa-toggle').checked;
+    const email        = document.getElementById('sec-email-input').value.trim();
+    const oldPw        = document.getElementById('sec-old-pw').value;
+    const newPw        = document.getElementById('sec-new-pw').value;
+
+    if (twoFaEnabled && !email) {
+      msg.style.color = '#ef4444';
+      msg.textContent = '2FA için e-posta adresi giriniz.';
+      return;
+    }
+
+    try {
+      const r2fa = await fetch(apiPath('/crm/auth/2fa/setup'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ enabled: twoFaEnabled, email: twoFaEnabled ? email : undefined }),
+      });
+      const d2fa = await r2fa.json();
+      if (!r2fa.ok) throw new Error(d2fa.error || '2FA ayarlanamadı.');
+
+      if (oldPw && newPw) {
+        if (newPw.length < 6) { msg.style.color='#ef4444'; msg.textContent='Yeni şifre en az 6 karakter olmalı.'; return; }
+        const rpw = await fetch(apiPath('/crm/users/change-password'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw }),
+        });
+        const dpw = await rpw.json();
+        if (!rpw.ok) throw new Error(dpw.error || 'Şifre değiştirilemedi.');
+      }
+
+      msg.style.color = '#22c55e';
+      msg.textContent = '✓ Ayarlar kaydedildi.';
+      document.getElementById('sec-old-pw').value = '';
+      document.getElementById('sec-new-pw').value = '';
+    } catch (err) {
+      msg.style.color = '#ef4444';
+      msg.textContent = err.message;
+    }
+  }
+
+  // Modal dışına tıklayınca kapat
+  document.getElementById('security-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSecurityModal();
+  });
+
+  // ── Yardımcı ─────────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Desktop resize
+  window.addEventListener('resize', () => {
+    const sb = document.getElementById('sidebar');
+    if (sb) {
+      if (window.innerWidth >= 768) { sb.style.display = 'flex'; sb.style.flexDirection = 'column'; }
+      else { sb.style.display = 'none'; }
+    }
+  });
+
+  // ── İlk yükleme ──────────────────────────────────────────────
+  loadCurrentUser();
+  </script>
+</body>
+</html>

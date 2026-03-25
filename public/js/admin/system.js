@@ -61,6 +61,20 @@ window.toggleCommand = async function (name) {
 
 // Users
 
+const USER_ROLE_META = {
+  admin: { label: 'Admin', badge: 'bg-indigo-100 text-indigo-700' },
+  field_tech: { label: 'Teknisyen', badge: 'bg-sky-100 text-sky-700' },
+  viewer: { label: 'Kullanici', badge: 'bg-emerald-100 text-emerald-700' },
+};
+
+function userRoleLabel(role) {
+  return USER_ROLE_META[role]?.label || role || '—';
+}
+
+function userRoleBadge(role) {
+  return USER_ROLE_META[role]?.badge || 'bg-gray-100 text-gray-600';
+}
+
 async function loadUsers() {
   const AS = window.AdminState;
   try {
@@ -76,7 +90,7 @@ function renderUsers(list) {
   const tbody = document.getElementById('users-table-body');
   tbody.innerHTML = '';
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">Kullanici bulunamadi</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-400">Kullanici bulunamadi</td></tr>`;
     return;
   }
   list.forEach(u => {
@@ -84,21 +98,25 @@ function renderUsers(list) {
     const tr = document.createElement('tr');
     tr.className = 'trow';
     tr.innerHTML = `
-      <td class="px-6 py-3.5 text-sm font-semibold text-gray-800">${escHtml(u.username)}</td>
       <td class="px-6 py-3.5">
-        <span class="text-xs font-bold px-2.5 py-1 rounded-full ${u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}">
-          ${u.role}
+        <div class="text-sm font-semibold text-gray-800">${escHtml(u.username)}</div>
+        <div class="text-xs text-gray-400">${escHtml(u.displayName || '—')}</div>
+      </td>
+      <td class="px-6 py-3.5">
+        <span class="text-xs font-bold px-2.5 py-1 rounded-full ${userRoleBadge(u.role)}">
+          ${userRoleLabel(u.role)}
         </span>
       </td>
+      <td class="px-6 py-3.5 text-sm text-gray-500">${escHtml(u.phone || '—')}</td>
       <td class="px-6 py-3.5 text-sm text-gray-500">${fmtDate(u.createdAt)}</td>
       <td class="px-6 py-3.5">
         <div class="flex items-center gap-1">
           ${isSelf
             ? '<span class="text-xs text-gray-400 italic">Siz</span>'
-            : `<button onclick="changeUserRole('${u._id}', '${u.role === 'admin' ? 'user' : 'admin'}')"
-                 title="${u.role === 'admin' ? 'Kullanici yap' : 'Yonetici yap'}"
+            : `<button onclick="editUser('${u._id}')"
+                 title="Duzenle"
                  class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs">
-                 <i class="fas fa-exchange-alt"></i>
+                 <i class="fas fa-pen"></i>
                </button>
                <button onclick="deleteUser('${u._id}')" title="Sil"
                  class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg text-xs">
@@ -118,8 +136,13 @@ window.openUserModal = function (user = null) {
   document.getElementById('user-modal-title').textContent = user ? 'Kullanici Duzenle' : 'Kullanici Ekle';
   document.getElementById('user-modal-id').value   = user?._id    || '';
   document.getElementById('user-username').value   = user?.username || '';
+  document.getElementById('user-display-name').value = user?.displayName || '';
+  document.getElementById('user-phone').value = user?.phone || '';
   document.getElementById('user-password').value   = '';
-  document.getElementById('user-role').value       = user?.role    || 'admin';
+  document.getElementById('user-role').value       = user?.role    || 'viewer';
+  document.getElementById('user-username').readOnly = !!user;
+  document.getElementById('user-username').classList.toggle('bg-gray-100', !!user);
+  document.getElementById('user-username-note').classList.toggle('hidden', !user);
   document.getElementById('user-password-wrap').classList.toggle('hidden', !!user);
   document.getElementById('user-modal').classList.remove('hidden');
 };
@@ -132,6 +155,8 @@ window.closeUserModal = function () {
 
 window.saveUser = async function () {
   const username = document.getElementById('user-username').value.trim();
+  const displayName = document.getElementById('user-display-name').value.trim();
+  const phone = document.getElementById('user-phone').value.trim();
   const password = document.getElementById('user-password').value;
   const role     = document.getElementById('user-role').value;
   const id       = document.getElementById('user-modal-id').value;
@@ -141,10 +166,10 @@ window.saveUser = async function () {
 
   try {
     if (id) {
-      await apiFetch(`/crm/users/${id}`, 'PUT', { role });
+      await apiFetch(`/crm/users/${id}`, 'PUT', { role, displayName, phone });
       showToast('Kullanici guncellendi', 'success');
     } else {
-      await apiFetch('/crm/auth/register', 'POST', { username, password, role });
+      await apiFetch('/crm/auth/register', 'POST', { username, password, role, displayName, phone });
       showToast('Kullanici olusturuldu', 'success');
     }
     closeUserModal();
@@ -154,14 +179,11 @@ window.saveUser = async function () {
   }
 };
 
-window.changeUserRole = async function (id, newRole) {
-  try {
-    await apiFetch(`/crm/users/${id}`, 'PUT', { role: newRole });
-    showToast('Rol guncellendi', 'success');
-    loadUsers();
-  } catch {
-    showToast('Rol guncellenemedi', 'error');
-  }
+window.editUser = function (id) {
+  const AS = window.AdminState;
+  const user = (AS.users || []).find(x => x._id === id);
+  if (!user) return;
+  openUserModal(user);
 };
 
 window.deleteUser = async function (id) {

@@ -229,7 +229,7 @@
     <a href="#" id="audit-tab" class="nav-item" title="Denetim Kaydi"><span class="nav-icon"><i class="fas fa-history"></i></span><span class="sb-label">Denetim Kaydi</span></a>
     <a href="#" id="integrations-tab" class="nav-item" title="Entegrasyonlar"><span class="nav-icon"><i class="fas fa-plug"></i></span><span class="sb-label">Entegrasyonlar</span></a>
     <a href="#" id="settings-tab" class="nav-item" title="Ayarlar"><span class="nav-icon"><i class="fas fa-cog"></i></span><span class="sb-label">Ayarlar</span></a>
-    <a href="#" onclick="openSecurityModal();return false;" class="nav-link" title="Güvenlik / 2FA"><span class="nav-icon"><i class="fas fa-shield-alt"></i></span><span class="sb-label">Güvenlik</span></a>
+    <a href="/admin/security" id="security-tab" class="nav-item" title="Güvenlik / 2FA"><span class="nav-icon"><i class="fas fa-shield-alt"></i></span><span class="sb-label">Güvenlik</span></a>
   </nav>
   <div id="sidebar-footer-wrap" class="px-4 py-3 border-t border-gray-100 flex-shrink-0">
     <div id="sidebar-footer-inner" class="flex items-center justify-between">
@@ -2177,7 +2177,7 @@ function openSecurityModal() {
   // Mevcut kullanıcı bilgilerini yükle
   const token = localStorage.getItem('token');
   if (!token) return;
-  fetch('/crm/api/v1/auth/check', { headers: { Authorization: 'Bearer ' + token } })
+  fetch('/crm/auth/check', { headers: { Authorization: 'Bearer ' + token } })
     .then(r => r.json())
     .then(data => {
       const u = data.user || {};
@@ -2230,7 +2230,7 @@ function onMethodChange(method) {
 }
 async function loadTotpQr() {
   const token = localStorage.getItem('token');
-  const res = await fetch('/crm/api/v1/auth/2fa/totp-setup', { method:'POST', headers:{ Authorization:'Bearer '+token }});
+  const res = await fetch('/crm/auth/2fa/totp-setup', { method:'POST', headers:{ Authorization:'Bearer '+token }});
   if (!res.ok) return;
   const data = await res.json();
   document.getElementById('sec-totp-qr').src = data.qrCodeDataUrl;
@@ -2240,7 +2240,7 @@ async function activateTotp() {
   const code  = document.getElementById('sec-totp-code').value.trim();
   const msg   = document.getElementById('sec-totp-msg');
   if (!code || code.length !== 6) { msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent='6 haneli kod girin.'; return; }
-  const res = await fetch('/crm/api/v1/auth/2fa/totp-activate', {
+  const res = await fetch('/crm/auth/2fa/totp-activate', {
     method:'POST', headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' },
     body: JSON.stringify({ token: code })
   });
@@ -2303,5 +2303,6 @@ async function saveSecuritySettings() {
 document.getElementById('security-modal').addEventListener('click', function(e) {
   if (e.target === this) closeSecurityModal();
 });
+
 </script></body>
 </html>

@@ -102,13 +102,23 @@ function renderRecentContacts(contacts) {
 async function loadAnalytics() {
   try {
     const data = await apiFetch('/crm/analytics');
-    renderCharts(data);
-  } catch {
+    try {
+      renderCharts(data);
+    } catch (err) {
+      console.error('Analytics render error:', err);
+      showToast('Analitik veriler alindi fakat grafikler cizilemedi', 'warning');
+    }
+  } catch (err) {
+    console.error('Analytics API error:', err);
     showToast('Analitik veriler yüklenemedi', 'error');
   }
 }
 
 function renderCharts(data) {
+  if (typeof Chart === 'undefined') {
+    throw new Error('Chart is not available');
+  }
+
   const AS = window.AdminState;
 
   const ctxContacts = document.getElementById('contacts-chart')?.getContext('2d');
@@ -150,7 +160,7 @@ function renderCharts(data) {
     AS.analyticsCharts.campaigns = new Chart(ctxCamp, {
       type: 'bar',
       data: {
-        labels: delivery.map(c => c.name),
+        labels: delivery.map(c => c.name || 'Unnamed Campaign'),
         datasets: [
           { label: 'Gönderildi',   data: delivery.map(c => c.sentCount   || 0), backgroundColor: '#4ade80' },
           { label: 'Başarısız', data: delivery.map(c => c.failedCount || 0), backgroundColor: '#f87171' },

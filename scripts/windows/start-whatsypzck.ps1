@@ -48,8 +48,34 @@ if (Get-Command ollama -ErrorAction SilentlyContinue) {
     }
 }
 
+# Read PORT from .env
+$appPort = 3000
+$envPath = Join-Path $WorkspacePath ".env"
+if (Test-Path $envPath) {
+    $portLine = Get-Content $envPath | Where-Object { $_ -match '^PORT=' } | Select-Object -First 1
+    if ($portLine) {
+        $parsed = ($portLine -replace '^PORT=', '').Trim()
+        if ($parsed -match '^\d+$') { $appPort = [int]$parsed }
+    }
+}
+
 Start-Process -FilePath "npm.cmd" -ArgumentList "run","start" -WorkingDirectory $WorkspacePath
-Start-Sleep -Seconds 2
-Start-Process "http://localhost:3000/admin/login"
-Start-Process "http://localhost:3000/status"
-Write-Host "[Ç.Kurtoğlu] WhatsYpzck baslatildi. WebUI: http://localhost:3001" -ForegroundColor Green
+Write-Host "[Ç.Kurtoğlu] Uygulama baslatiliyor, lutfen bekleyin..." -ForegroundColor Yellow
+Start-Sleep -Seconds 12
+
+# Wait for server to be ready (up to 60s)
+$ready = $false
+for ($i = 0; $i -lt 24; $i++) {
+    try {
+        $r = Invoke-WebRequest -Uri "http://localhost:$appPort/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        if ($r.StatusCode -eq 200) { $ready = $true; break }
+    } catch {}
+    Start-Sleep -Seconds 2
+}
+
+Start-Process "http://localhost:$appPort/admin"
+if ($ready) {
+    Write-Host "[Ç.Kurtoğlu] WhatsYpzck baslatildi. Admin Panel: http://localhost:$appPort/admin" -ForegroundColor Green
+} else {
+    Write-Host "[Ç.Kurtoğlu] WhatsYpzck baslatildi (sunucu hazir olmayabilir). Admin Panel: http://localhost:$appPort/admin" -ForegroundColor Yellow
+}
