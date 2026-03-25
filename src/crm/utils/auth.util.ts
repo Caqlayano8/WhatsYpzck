@@ -89,17 +89,34 @@ export class AuthService {
         EnvConfig.JWT_SECRET,
         { expiresIn: '5m' }
       );
-      await AuthService.sendTwoFactorOtp(String(user._id));
-      return {
-        twoFactorRequired: true,
-        tempToken,
-        user: {
-          _id: String(user._id),
-          username: user.username,
-          displayName: user.displayName || user.username,
-          email: (user as any).email || '',
-        }
-      };
+      const method: string = (user as any).twoFactorMethod || 'email';
+      if (method === 'totp') {
+        // TOTP: QR kod kurulumu yok, sadece uygulama kodu beklenir
+        return {
+          twoFactorRequired: true,
+          tempToken,
+          method: 'totp',
+          user: {
+            _id: String(user._id),
+            username: user.username,
+            displayName: user.displayName || user.username,
+          },
+        };
+      } else {
+        // E-posta OTP
+        await AuthService.sendTwoFactorOtp(String(user._id));
+        return {
+          twoFactorRequired: true,
+          tempToken,
+          method: 'email',
+          user: {
+            _id: String(user._id),
+            username: user.username,
+            displayName: user.displayName || user.username,
+            email: (user as any).email || '',
+          },
+        };
+      }
     }
 
     const token = jwt.sign(
@@ -172,10 +189,54 @@ export class AuthService {
     };
   }
 
-  static async setTwoFactor(userId: string, enabled: boolean, email?: string) {
+  static async setTwoFactor(userId: string, enabled: boolean, email?: string, method?: string) {
     const update: any = { twoFactorEnabled: enabled };
     if (email) update.email = email.trim().toLowerCase();
+    if (method) update.twoFactorMethod = method;
     await UserModel.updateOne({ _id: userId }, update);
+  }
+
+  /** TOTP - Google Authenticator için gizli anahtar oluştur ve QR kod URL'i döndür */
+  static async setupTotp(userId: string): Promise<{ secret: string; otpauth_url: string; qrCodeDataUrl: string }> {
+    const speakeasy = require('speakeasy');
+    const QRCode = require('qrcode');
+    const user = await UserModel.findById(userId);
+    if (!user) throw new Error('Kullanıcı bulunamadı.');
+    const secret = speakeasy.generateSecret({ name: `WhatsYpzck (${user.username})`, length: 20 });
+    // Gizli anahtarı DB'ye kaydet (henüz aktifleştirme yapılmadı)
+    await UserModel.updateOne({ _id: userId }, { totpSecret: secret.base32 });
+    const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+    return { secret: secret.base32, otpauth_url: secret.otpauth_url, qrCodeDataUrl };
+  }
+
+  /** TOTP - 6 haneli kodu doğrula ve 2FA'yı aktifleştir */
+  static async verifyAndActivateTotp(userId: string, token: string): Promise<boolean> {
+    const speakeasy = require('speakeasy');
+    const user = await UserModel.findById(userId);
+    if (!user || !(user as any).totpSecret) throw new Error('TOTP kurulumu bulunamadı.');
+    const verified = speakeasy.totp.verify({
+      secret: (user as any).totpSecret,
+      encoding: 'base32',
+      token,
+      window: 1,
+    });
+    if (verified) {
+      await UserModel.updateOne({ _id: userId }, { twoFactorEnabled: true, twoFactorMethod: 'totp' });
+    }
+    return verified;
+  }
+
+  /** TOTP - Login sırasında 6 haneli kodu doğrula */
+  static async verifyTotpLogin(userId: string, token: string): Promise<boolean> {
+    const speakeasy = require('speakeasy');
+    const user = await UserModel.findById(userId);
+    if (!user || !(user as any).totpSecret) return false;
+    return speakeasy.totp.verify({
+      secret: (user as any).totpSecret,
+      encoding: 'base32',
+      token,
+      window: 1,
+    });
   }
 
     static async verifyToken(token: string) {

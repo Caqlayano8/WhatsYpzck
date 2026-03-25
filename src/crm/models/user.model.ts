@@ -32,8 +32,10 @@ export interface IUser extends Document {
     // 2FA
     email?: string;
     twoFactorEnabled?: boolean;
+    twoFactorMethod?: 'email' | 'totp'; // 'email' = OTP e-posta, 'totp' = Google Authenticator
     twoFactorOtp?: string;
     twoFactorExpiry?: Date;
+    totpSecret?: string;     // TOTP gizli anahtarı (base32)
     createdAt: Date;
     updatedAt: Date;
 }
@@ -60,10 +62,12 @@ const UserSchema = new Schema<IUser>({
     isActive:  { type: Boolean, default: true },
     lastLogin: { type: Date },
     // 2FA alanları
-    email:           { type: String },
-    twoFactorEnabled:{ type: Boolean, default: false },
-    twoFactorOtp:    { type: String },   // hash'li OTP
-    twoFactorExpiry: { type: Date },     // OTP geçerlilik süresi
+    email:            { type: String },
+    twoFactorEnabled: { type: Boolean, default: false },
+    twoFactorMethod:  { type: String, enum: ['email', 'totp'], default: 'email' },
+    twoFactorOtp:     { type: String },   // hash'li OTP
+    twoFactorExpiry:  { type: Date },     // OTP geçerlilik süresi
+    totpSecret:       { type: String },   // TOTP gizli anahtarı
 }, { timestamps: true });
 
 export const UserModel = mongoose.model<IUser>('User', UserSchema);

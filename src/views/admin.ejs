@@ -2118,6 +2118,30 @@
           onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
         <p style="font-size:10px;color:#94a3b8;margin:4px 0 0;">2FA aktif etmek için geçerli bir e-posta girilmeli.</p>
       </div>
+      <!-- 2FA Yöntem Seçici -->
+      <div id="sec-2fa-method-row" style="display:none;margin-top:8px;">
+        <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">Doğrulama Yöntemi</label>
+        <div style="display:flex;gap:8px;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;flex:1;" id="sec-method-email-label">
+            <input type="radio" name="sec-2fa-method" value="email" id="sec-method-email" onchange="onMethodChange('email')" checked> 📧 E-posta OTP
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;flex:1;" id="sec-method-totp-label">
+            <input type="radio" name="sec-2fa-method" value="totp" id="sec-method-totp" onchange="onMethodChange('totp')"> 🔐 Google Authenticator
+          </label>
+        </div>
+      </div>
+
+      <!-- TOTP QR Kod bölümü -->
+      <div id="sec-totp-row" style="display:none;margin-top:10px;text-align:center;">
+        <p style="font-size:12px;color:#475569;margin:0 0 8px;">Google Authenticator uygulamasını açın ve QR kodu okutun:</p>
+        <img id="sec-totp-qr" src="" alt="QR Kod" style="width:160px;height:160px;border:1px solid #e2e8f0;border-radius:8px;"/>
+        <p style="font-size:10px;color:#94a3b8;margin:6px 0 0;">QR okutulduktan sonra uygulamadaki 6 haneli kodu girin ve "Etkinleştir" butonuna basın.</p>
+        <input id="sec-totp-code" type="text" placeholder="6 haneli kod" maxlength="6"
+          style="width:140px;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:16px;color:#1e293b;outline:none;text-align:center;margin-top:8px;letter-spacing:4px;"
+          onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+        <br><button onclick="activateTotp()" style="margin-top:8px;padding:8px 18px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;">✅ Etkinleştir</button>
+        <p id="sec-totp-msg" style="font-size:11px;color:#16a34a;margin:4px 0 0;display:none;"></p>
+      </div>
     </div>
 
     <!-- Şifre Değiştir Bağlantısı -->
@@ -2182,6 +2206,46 @@ function updateToggleUI(on) {
 
 function onTwoFaToggle(checked) {
   updateToggleUI(checked);
+  const methodRow = document.getElementById('sec-2fa-method-row');
+  if (methodRow) methodRow.style.display = checked ? 'block' : 'none';
+  if (!checked) { onMethodChange('email'); }
+}
+function onMethodChange(method) {
+  const emailRow = document.getElementById('sec-email-row');
+  const totpRow  = document.getElementById('sec-totp-row');
+  const desc     = document.getElementById('sec-2fa-desc');
+  if (method === 'totp') {
+    if (emailRow) emailRow.style.display = 'none';
+    if (totpRow)  totpRow.style.display  = 'block';
+    if (desc) desc.textContent = 'Girişte Google Authenticator kodu istenir';
+    // QR kod henüz yüklenmemişse yükle
+    if (document.getElementById('sec-totp-qr').src === location.origin + '/') loadTotpQr();
+  } else {
+    if (emailRow) emailRow.style.display = 'block';
+    if (totpRow)  totpRow.style.display  = 'none';
+    if (desc) desc.textContent = 'Girişte e-postanıza kod gönderilir';
+  }
+}
+async function loadTotpQr() {
+  const token = localStorage.getItem('token');
+  const res = await fetch('/crm/api/v1/auth/2fa/totp-setup', { method:'POST', headers:{ Authorization:'Bearer '+token }});
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('sec-totp-qr').src = data.qrCodeDataUrl;
+}
+async function activateTotp() {
+  const token = localStorage.getItem('token');
+  const code  = document.getElementById('sec-totp-code').value.trim();
+  const msg   = document.getElementById('sec-totp-msg');
+  if (!code || code.length !== 6) { msg.style.display='block'; msg.style.color='#dc2626'; msg.textContent='6 haneli kod girin.'; return; }
+  const res = await fetch('/crm/api/v1/auth/2fa/totp-activate', {
+    method:'POST', headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' },
+    body: JSON.stringify({ token: code })
+  });
+  const data = await res.json();
+  msg.style.display = 'block';
+  if (res.ok) { msg.style.color='#16a34a'; msg.textContent='✅ Google Authenticator aktif edildi!'; }
+  else { msg.style.color='#dc2626'; msg.textContent = data.error || 'Hata.'; }
 }
 
 async function saveSecuritySettings() {

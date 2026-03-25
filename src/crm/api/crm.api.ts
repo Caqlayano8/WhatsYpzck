@@ -644,11 +644,26 @@ export default function (botManager: BotManager) {
         } catch { res.json({ user: req.user }); }
     });
 
-    // 2FA - OTP doğrulama (tempToken ile)
+    // 2FA - OTP/TOTP doğrulama (tempToken ile)
     router.post('/auth/2fa/verify', async (req, res) => {
         try {
-            const { tempToken, otp } = req.body;
+            const { tempToken, otp, method } = req.body;
             if (!tempToken || !otp) return res.status(400).json({ error: 'tempToken ve otp gereklidir.' });
+            if (method === 'totp') {
+                let payload: any;
+                try { payload = require('jsonwebtoken').verify(tempToken, process.env.JWT_SECRET || 'secret') as any; }
+                catch { return res.status(401).json({ error: 'Gecersiz veya suresi dolmus oturum.' }); }
+                if (!payload.twoFactorPending) return res.status(401).json({ error: 'Gecersiz token.' });
+                const isValid = await AuthService.verifyTotpLogin(payload.userId, String(otp));
+                if (!isValid) return res.status(401).json({ error: 'Gecersiz dogrulama kodu.' });
+                const u = await UserModel.findById(payload.userId);
+                if (!u) return res.status(404).json({ error: 'Kullanici bulunamadi.' });
+                const tkn = require('jsonwebtoken').sign(
+                    { userId: String(u._id), role: u.role, username: u.username, _id: String(u._id), permissions: (u as any).permissions || {} },
+                    process.env.JWT_SECRET || 'secret', { expiresIn: process.env.JWT_EXPIRES_IN || '2h' });
+                await UserModel.updateOne({ _id: u._id }, { lastLogin: new Date() });
+                return res.json({ token: tkn, user: { _id: String(u._id), username: u.username, displayName: (u as any).displayName || u.username, role: u.role } });
+            }
             const result = await AuthService.verifyTwoFactorOtp(tempToken, String(otp));
             res.json(result);
         } catch (err: any) {
@@ -696,6 +711,43 @@ export default function (botManager: BotManager) {
             res.json({ success: true });
         } catch (err: any) {
             res.status(500).json({ error: err.message || '2FA ayarlanamadi.' });
+    // TOTP - Google Authenticator kurulum: QR kod ve secret üret
+    router.post('/auth/2fa/totp-setup', authenticate, async (req, res) => {
+        try {
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const result = await AuthService.setupTotp(userId);
+            res.json(result);
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'TOTP kurulumu basarisiz.' });
+        }
+    });
+
+    // TOTP - 6 haneli kodu doğrula ve aktifleştir
+    router.post('/auth/2fa/totp-activate', authenticate, async (req, res) => {
+        try {
+            const { token } = req.body;
+            if (!token) return res.status(400).json({ error: 'Dogrulama kodu gereklidir.' });
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const ok = await AuthService.verifyAndActivateTotp(userId, String(token));
+            if (!ok) return res.status(400).json({ error: 'Gecersiz dogrulama kodu. Uygulamadaki kodu tekrar deneyin.' });
+            res.json({ success: true, message: 'Google Authenticator 2FA basariyla etkinlestirildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'TOTP aktivasyon basarisiz.' });
+        }
+    });
+
+    // TOTP - Devre dışı bırak
+    router.post('/auth/2fa/totp-disable', authenticate, async (req, res) => {
+        try {
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            await AuthService.setTwoFactor(userId, false, undefined, 'email');
+            await (UserModel as any).updateOne({ _id: userId }, { totpSecret: null });
+            res.json({ success: true, message: 'TOTP 2FA devre disi birakildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'TOTP devre disi birakilamadi.' });
+        }
+    });
+
         }
     });
     // Kendi şifresini değiştir

@@ -240,13 +240,19 @@
         if (data.twoFactorRequired) {
           // 2FA gerekli — ikinci adıma geç
           _tempToken = data.tempToken;
+          window._2faMethod = data.method || 'email';
           document.getElementById('login-step').classList.add('hidden');
           document.getElementById('twofa-step').classList.remove('hidden');
-          const maskedEmail = data.user?.email
-            ? data.user.email.replace(/(.{2})(.*)(@.*)/, '$1***$3')
-            : 'kayıtlı e-posta adresinize';
-          document.getElementById('twofa-hint').textContent =
-            '6 haneli doğrulama kodu ' + maskedEmail + ' adresine gönderildi.';
+          if (data.method === 'totp') {
+            document.getElementById('twofa-hint').textContent =
+              'Google Authenticator uygulamanızdaki 6 haneli kodu girin.';
+          } else {
+            const maskedEmail = data.user?.email
+              ? data.user.email.replace(/(.{2})(.*)(@.*)/, '$1***$3')
+              : 'kayıtlı e-posta adresinize';
+            document.getElementById('twofa-hint').textContent =
+              '6 haneli doğrulama kodu ' + maskedEmail + ' adresine gönderildi.';
+          }
         } else {
           // 2FA yok — direkt giriş
           localStorage.setItem('token', data.token);
@@ -275,7 +281,7 @@
         const res = await fetch('/crm/auth/2fa/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tempToken: _tempToken, otp }),
+          body: JSON.stringify({ tempToken: _tempToken, otp, method: window._2faMethod || 'email' }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Doğrulama başarısız.');
