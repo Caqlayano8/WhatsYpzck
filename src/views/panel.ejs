@@ -98,6 +98,13 @@
     .list-item:hover { background: #f1f5f9; }
     .list-item-title { font-size: 13px; font-weight: 600; color: #1e293b; }
     .list-item-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+    .list-item-actions { display: flex; align-items: center; gap: 8px; margin-left: 10px; flex-shrink: 0; }
+    .detail-btn {
+      border: 1px solid #c7d2fe; background: #eef2ff; color: #4338ca;
+      border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 700;
+      cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    }
+    .detail-btn:hover { background: #e0e7ff; border-color: #a5b4fc; }
 
     /* Empty state */
     .empty-state { text-align: center; padding: 40px 20px; color: #94a3b8; }
@@ -566,13 +573,17 @@
     el.innerHTML = list.map(inc => {
       const s = statusMap[inc.status] || { label: inc.status, cls: 'badge-blue' };
       const date = inc.createdAt ? new Date(inc.createdAt).toLocaleDateString('tr-TR') : '';
+      const incidentKey = escHtml((inc.incidentId || inc.id || '').toString());
       return `
-        <div class="list-item">
+        <div class="list-item" onclick="openIncidentDetail('${incidentKey}')">
           <div style="flex:1;min-width:0;">
             <div class="list-item-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(inc.issueSummary || inc.issue || 'Arıza kaydı')}</div>
             <div class="list-item-sub">${escHtml((inc.customerName || 'Bilinmiyor') + ' · #' + (inc.incidentId || inc.id || ''))}${date ? ' · ' + date : ''}</div>
           </div>
-          <span class="badge ${s.cls}" style="margin-left:10px;flex-shrink:0;">${s.label}</span>
+          <div class="list-item-actions">
+            <span class="badge ${s.cls}">${s.label}</span>
+            <button type="button" class="detail-btn" onclick="event.stopPropagation(); openIncidentDetail('${incidentKey}')">Detay</button>
+          </div>
         </div>
       `;
     }).join('');
@@ -621,8 +632,9 @@
       const time = (c.lastTimestamp || c.lastMessageAt) ? new Date(c.lastTimestamp || c.lastMessageAt).toLocaleDateString('tr-TR') : '';
       const unreadCount = Number(c.unreadCount || c.unread || 0);
       const unread = unreadCount > 0 ? `<span class="badge badge-red" style="margin-left:8px;">${unreadCount}</span>` : '';
+      const phoneKey = escHtml((c.phoneNumber || c.phone || '').toString());
       return `
-        <div class="list-item">
+        <div class="list-item" onclick="openConversationDetail('${phoneKey}')">
           <div style="width:38px;height:38px;background:#eef2ff;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:12px;">
             <i class="fas fa-user" style="color:#4f46e5;font-size:14px;"></i>
           </div>
@@ -633,13 +645,94 @@
             </div>
             <div class="list-item-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(last)}</div>
           </div>
-          ${time ? `<div style="font-size:10px;color:#94a3b8;flex-shrink:0;margin-left:8px;">${time}</div>` : ''}
+          <div class="list-item-actions">
+            ${time ? `<div style="font-size:10px;color:#94a3b8;">${time}</div>` : ''}
+            <button type="button" class="detail-btn" onclick="event.stopPropagation(); openConversationDetail('${phoneKey}')">Detay</button>
+          </div>
         </div>
       `;
     }).join('');
   }
 
   function filterConversations() { renderConversations(); }
+
+  function formatDateTime(value) {
+    if (!value) return 'Belirtilmedi';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return escHtml(String(value));
+    return date.toLocaleString('tr-TR');
+  }
+
+  function detailValue(label, value) {
+    return `
+      <div style="padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px;">${label}</div>
+        <div style="font-size:13px;color:#0f172a;font-weight:600;word-break:break-word;">${escHtml(value || 'Belirtilmedi')}</div>
+      </div>
+    `;
+  }
+
+  function openDetailModal(title, bodyHtml) {
+    const overlay = document.getElementById('detail-modal-overlay');
+    const content = document.getElementById('detail-modal-content');
+    if (!overlay || !content) return;
+    content.innerHTML = `
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;">
+        <div>
+          <div style="font-size:18px;font-weight:800;color:#0f172a;">${title}</div>
+          <div style="font-size:12px;color:#64748b;margin-top:4px;">Detay kaydi</div>
+        </div>
+        <button type="button" onclick="closeDetailModal()" style="border:none;background:#f1f5f9;color:#475569;border-radius:10px;width:36px;height:36px;cursor:pointer;font-size:18px;line-height:1;">&times;</button>
+      </div>
+      ${bodyHtml}
+      <div style="margin-top:18px;display:flex;justify-content:flex-end;">
+        <button type="button" class="detail-btn" onclick="closeDetailModal()">Kapat</button>
+      </div>
+    `;
+    overlay.style.display = 'flex';
+  }
+
+  function closeDetailModal() {
+    const overlay = document.getElementById('detail-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function openIncidentDetail(incidentId) {
+    const incident = _allIncidents.find(item => String(item.incidentId || item.id || '') === String(incidentId || ''));
+    if (!incident) return;
+    const bodyHtml = `
+      <div style="display:grid;gap:10px;">
+        ${detailValue('Ariza No', '#' + (incident.incidentId || incident.id || '-'))}
+        ${detailValue('Durum', incident.status || 'Belirtilmedi')}
+        ${detailValue('Musteri', incident.customerName || incident.name || 'Belirtilmedi')}
+        ${detailValue('Telefon', incident.customerPhone || incident.phone || 'Belirtilmedi')}
+        ${detailValue('Adres', incident.address || incident.location || 'Belirtilmedi')}
+        ${detailValue('Konu', incident.issueSummary || incident.issue || incident.title || 'Belirtilmedi')}
+        ${detailValue('Aciklama', incident.description || incident.notes || 'Belirtilmedi')}
+        ${detailValue('Olusturma Tarihi', formatDateTime(incident.createdAt))}
+        ${detailValue('Guncelleme Tarihi', formatDateTime(incident.updatedAt))}
+      </div>
+    `;
+    openDetailModal('Ariza Detayi', bodyHtml);
+  }
+
+  function openConversationDetail(phone) {
+    const conversation = _allConversations.find(item => String(item.phoneNumber || item.phone || '') === String(phone || ''));
+    if (!conversation) return;
+    const contactName = (conversation.contact && conversation.contact.name) || conversation.name || conversation.contactName || 'Belirtilmedi';
+    const lastMessage = conversation.lastMessage || conversation.lastMessageText || conversation.preview || 'Belirtilmedi';
+    const bodyHtml = `
+      <div style="display:grid;gap:10px;">
+        ${detailValue('Kisi', contactName)}
+        ${detailValue('Telefon', conversation.phoneNumber || conversation.phone || 'Belirtilmedi')}
+        ${detailValue('Son Mesaj', lastMessage)}
+        ${detailValue('Okunmamis Mesaj', String(conversation.unreadCount || conversation.unread || 0))}
+        ${detailValue('Son Mesaj Tarihi', formatDateTime(conversation.lastTimestamp || conversation.lastMessageAt))}
+        ${detailValue('Durum', conversation.status || conversation.state || 'Belirtilmedi')}
+      </div>
+    `;
+    openDetailModal('Sohbet Detayi', bodyHtml);
+  }
 
   // ── Çıkış ─────────────────────────────────────────────────────
   function doLogout() {
@@ -786,6 +879,9 @@
   // Modal dışına tıklayınca kapat
   document.getElementById('security-modal').addEventListener('click', function(e) {
     if (e.target === this) closeSecurityModal();
+  });
+  document.getElementById('detail-modal-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeDetailModal();
   });
 
   // ── Yardımcı ─────────────────────────────────────────────────
