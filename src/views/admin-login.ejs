@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -114,12 +114,12 @@
       <p class="text-sm text-gray-400 mt-1">Administration Panel · Sign in to continue</p>
     </div>
 
-    <form id="login-form" class="space-y-4" autocomplete="on">
+    <form id="login-form" class="space-y-4" autocomplete="off">
       <div>
         <label for="username">Username</label>
         <div class="relative">
           <i class="fas fa-user field-icon"></i>
-          <input type="text" id="username" name="username" required autocomplete="username"
+          <input type="text" id="username" name="username" required autocomplete="off"
             class="field" placeholder="Enter your username">
         </div>
       </div>
@@ -128,7 +128,7 @@
         <label for="password">Password</label>
         <div class="relative">
           <i class="fas fa-lock field-icon"></i>
-          <input type="password" id="password" name="password" required autocomplete="current-password"
+          <input type="password" id="password" name="password" required autocomplete="new-password"
             class="field" placeholder="Enter your password" style="padding-right:40px">
           <button type="button" id="toggle-pw"
             class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
@@ -150,7 +150,6 @@
 
     <div class="divider"></div>
     <p class="text-center text-xs text-gray-300">WhatsYpzck CRM &nbsp;·&nbsp; Secure Administration Access</p>
-    <p class="text-center text-xs text-gray-400 mt-2">Varsayilan Giris: Caqlayan / Caqlayan@o8</p>
   </div>
 
   <script>
