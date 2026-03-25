@@ -3,6 +3,28 @@ import jwt from 'jsonwebtoken';
 import { UserModel, UserRole } from '../models/user.model';
 import EnvConfig from '../../configs/env.config';
 import logger from '../../configs/logger.config';
+import { sendMailWithAttachment } from '../../utils/email/mailer.util';
+
+const ROLE_ALIASES: Record<string, UserRole> = {
+  admin: 'admin',
+  yonetici: 'admin',
+  manager: 'admin',
+  field_tech: 'field_tech',
+  technician: 'field_tech',
+  teknisyen: 'field_tech',
+  user: 'viewer',
+  viewer: 'viewer',
+  kullanici: 'viewer',
+};
+
+export function normalizeUserRole(role?: string): UserRole {
+  const normalized = String(role || 'viewer').trim().toLocaleLowerCase('tr-TR');
+  const resolved = ROLE_ALIASES[normalized];
+  if (!resolved) {
+    throw new Error('Gecersiz rol. Desteklenen roller: admin, field_tech, viewer');
+  }
+  return resolved;
+}
 
 /** Default permissions per role */
 function defaultPermissions(role: UserRole) {
@@ -38,8 +60,9 @@ export class AuthService {
     const existingUser = await UserModel.findOne({ username });
     if (existingUser) throw new Error('Kullanıcı adı zaten mevcut');
 
+    const resolvedRole = normalizeUserRole(role);
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new UserModel({ username, password: hashedPassword, role, displayName, phone });
+    const user = new UserModel({ username, password: hashedPassword, role: resolvedRole, displayName, phone });
     await user.save();
     return user;
   }
@@ -51,7 +74,6 @@ export class AuthService {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new Error('Geçersiz kullanıcı adı veya şifre');
 
-    // Resolve effective permissions: user overrides > role defaults
     const defaults = defaultPermissions(user.role as UserRole);
     const overrides = user.permissions || {};
     const effectivePerms: Record<string, boolean> = {};
@@ -60,15 +82,32 @@ export class AuthService {
         effectivePerms[k] = (overrides as any)[k] !== undefined ? (overrides as any)[k] : defaults[k];
     }
 
+    // 2FA aktif mi?
+    if ((user as any).twoFactorEnabled) {
+      const tempToken = jwt.sign(
+        { userId: String(user._id), twoFactorPending: true },
+        EnvConfig.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+      await AuthService.sendTwoFactorOtp(String(user._id));
+      return {
+        twoFactorRequired: true,
+        tempToken,
+        user: {
+          _id: String(user._id),
+          username: user.username,
+          displayName: user.displayName || user.username,
+          email: (user as any).email || '',
+        }
+      };
+    }
+
     const token = jwt.sign(
       { userId: String(user._id), role: user.role, username: user.username, _id: String(user._id), permissions: effectivePerms },
       EnvConfig.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '2h' }
     );
-
-    // Update last login
     await UserModel.updateOne({ _id: user._id }, { lastLogin: new Date() });
-
     return {
       token,
       user: {
@@ -81,7 +120,65 @@ export class AuthService {
     };
   }
 
-  static async verifyToken(token: string) {
+  static async sendTwoFactorOtp(userId: string): Promise<void> {
+    const user = await UserModel.findById(userId) as any;
+    if (!user || !user.email) throw new Error('Kullanıcı e-postası tanımlı değil.');
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const hashedOtp = await bcrypt.hash(otp, 10);
+    const expiry = new Date(Date.now() + 5 * 60 * 1000);
+    await UserModel.updateOne({ _id: userId }, { twoFactorOtp: hashedOtp, twoFactorExpiry: expiry });
+    const sent = await sendMailWithAttachment({
+      subject: 'WhatsYpzck - Giriş Doğrulama Kodu',
+      textBody: `Merhaba ${user.displayName || user.username},\n\nGiriş doğrulama kodunuz:\n\n  ${otp}\n\nBu kod 5 dakika geçerlidir.\n\nWhatsYpzck Güvenlik Sistemi`,
+      recipients: user.email,
+    });
+    if (!sent) throw new Error('Doğrulama kodu gönderilemedi. SMTP ayarlarını kontrol edin.');
+    logger.info(`2FA OTP gönderildi: ${user.username} → ${user.email}`);
+  }
+
+  static async verifyTwoFactorOtp(tempToken: string, otp: string) {
+    let payload: any;
+    try { payload = jwt.verify(tempToken, EnvConfig.JWT_SECRET) as any; }
+    catch { throw new Error('Geçersiz veya süresi dolmuş oturum. Lütfen tekrar giriş yapın.'); }
+    if (!payload.twoFactorPending) throw new Error('Bu token 2FA doğrulaması için geçersiz.');
+    const user = await UserModel.findById(payload.userId) as any;
+    if (!user || !user.isActive) throw new Error('Kullanıcı bulunamadı.');
+    if (!user.twoFactorOtp || !user.twoFactorExpiry || new Date() > user.twoFactorExpiry)
+      throw new Error('Doğrulama kodunun süresi dolmuş. Lütfen yeniden giriş yapın.');
+    const isOtpMatch = await bcrypt.compare(otp.trim(), user.twoFactorOtp);
+    if (!isOtpMatch) throw new Error('Doğrulama kodu hatalı.');
+    await UserModel.updateOne({ _id: user._id }, { twoFactorOtp: null, twoFactorExpiry: null, lastLogin: new Date() });
+    const defaults = defaultPermissions(user.role as UserRole);
+    const overrides = user.permissions || {};
+    const effectivePerms: Record<string, boolean> = {};
+    for (const key of Object.keys(defaults)) {
+      const k = key as keyof typeof defaults;
+      effectivePerms[k] = (overrides as any)[k] !== undefined ? (overrides as any)[k] : defaults[k];
+    }
+    const token = jwt.sign(
+      { userId: String(user._id), role: user.role, username: user.username, _id: String(user._id), permissions: effectivePerms },
+      EnvConfig.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '2h' }
+    );
+    return {
+      token,
+      user: {
+        _id: String(user._id),
+        username: user.username,
+        displayName: user.displayName || user.username,
+        role: user.role,
+        permissions: effectivePerms,
+      }
+    };
+  }
+
+  static async setTwoFactor(userId: string, enabled: boolean, email?: string) {
+    const update: any = { twoFactorEnabled: enabled };
+    if (email) update.email = email.trim().toLowerCase();
+    await UserModel.updateOne({ _id: userId }, update);
+  }
+
+    static async verifyToken(token: string) {
     try {
       return jwt.verify(token, EnvConfig.JWT_SECRET);
     } catch (error) {

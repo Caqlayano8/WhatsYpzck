@@ -2077,5 +2077,165 @@
   .props-field input:focus, .props-field textarea:focus, .props-field select:focus { border-color: #6366f1; }
   .props-field textarea { resize: vertical; min-height: 72px; }
 </style>
-</body>
+
+<!-- ═══════════════════════════════════════════════
+     Güvenlik / 2FA Ayarları Modalı
+═══════════════════════════════════════════════ -->
+<div id="security-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:20px;box-shadow:0 20px 50px rgba(0,0,0,0.25);padding:28px;width:100%;max-width:440px;margin:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:38px;height:38px;background:#eef2ff;border-radius:10px;display:flex;align-items:center;justify-content:center;">
+          <i class="fas fa-shield-halved" style="color:#4f46e5;font-size:16px;"></i>
+        </div>
+        <div>
+          <h3 style="font-weight:700;color:#111827;font-size:15px;margin:0;">Güvenlik Ayarları</h3>
+          <p style="font-size:11px;color:#6b7280;margin:0;" id="sec-username-label"></p>
+        </div>
+      </div>
+      <button onclick="closeSecurityModal()" style="background:none;border:none;font-size:22px;color:#9ca3af;cursor:pointer;">&times;</button>
+    </div>
+
+    <!-- 2FA Toggle Kartı -->
+    <div style="background:#f8fafc;border-radius:14px;border:1.5px solid #e2e8f0;padding:16px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div>
+          <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 2px;">İki Adımlı Doğrulama (2FA)</p>
+          <p style="font-size:11px;color:#64748b;margin:0;">Girişte e-postanıza kod gönderilir</p>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;">
+          <input type="checkbox" id="sec-2fa-toggle" style="opacity:0;width:0;height:0;" onchange="onTwoFaToggle(this.checked)">
+          <span id="sec-2fa-slider" style="position:absolute;inset:0;background:#d1d5db;border-radius:999px;transition:.3s;"></span>
+          <span id="sec-2fa-knob" style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></span>
+        </label>
+      </div>
+
+      <!-- E-posta girişi (2FA açıkken) -->
+      <div id="sec-email-row" style="display:none;">
+        <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">E-posta Adresi (kod buraya gönderilir)</label>
+        <input id="sec-email-input" type="email" placeholder="ornek@mail.com"
+          style="width:100%;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;box-sizing:border-box;"
+          onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+        <p style="font-size:10px;color:#94a3b8;margin:4px 0 0;">2FA aktif etmek için geçerli bir e-posta girilmeli.</p>
+      </div>
+    </div>
+
+    <!-- Şifre Değiştir Bağlantısı -->
+    <div style="background:#f8fafc;border-radius:14px;border:1.5px solid #e2e8f0;padding:14px;margin-bottom:16px;">
+      <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 6px;">Şifre Değiştir</p>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <input id="sec-old-pw" type="password" placeholder="Mevcut şifre" autocomplete="current-password"
+          style="border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;"
+          onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+        <input id="sec-new-pw" type="password" placeholder="Yeni şifre (min. 6 karakter)" autocomplete="new-password"
+          style="border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;"
+          onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+      </div>
+    </div>
+
+    <p id="sec-msg" style="font-size:12px;text-align:center;min-height:16px;margin:0 0 12px;"></p>
+
+    <button onclick="saveSecuritySettings()" style="width:100%;background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">
+      Kaydet
+    </button>
+  </div>
+</div>
+
+<script>
+// ── Güvenlik Modal ────────────────────────────────────────────
+function openSecurityModal() {
+  const modal = document.getElementById('security-modal');
+  modal.style.display = 'flex';
+  document.getElementById('sec-msg').textContent = '';
+
+  // Mevcut kullanıcı bilgilerini yükle
+  const token = localStorage.getItem('token');
+  if (!token) return;
+  fetch('/crm/auth/check', { headers: { Authorization: 'Bearer ' + token } })
+    .then(r => r.json())
+    .then(data => {
+      const u = data.user || {};
+      document.getElementById('sec-username-label').textContent = '@' + (u.username || '');
+      const twoFaOn = !!u.twoFactorEnabled;
+      const toggle = document.getElementById('sec-2fa-toggle');
+      toggle.checked = twoFaOn;
+      updateToggleUI(twoFaOn);
+      if (twoFaOn && u.email) document.getElementById('sec-email-input').value = u.email;
+    })
+    .catch(() => {});
+}
+
+function closeSecurityModal() {
+  document.getElementById('security-modal').style.display = 'none';
+  document.getElementById('sec-old-pw').value = '';
+  document.getElementById('sec-new-pw').value = '';
+}
+
+function updateToggleUI(on) {
+  const slider = document.getElementById('sec-2fa-slider');
+  const knob   = document.getElementById('sec-2fa-knob');
+  const row    = document.getElementById('sec-email-row');
+  slider.style.background = on ? '#4f46e5' : '#d1d5db';
+  knob.style.transform    = on ? 'translateX(20px)' : 'translateX(0)';
+  row.style.display       = on ? 'block' : 'none';
+}
+
+function onTwoFaToggle(checked) {
+  updateToggleUI(checked);
+}
+
+async function saveSecuritySettings() {
+  const token = localStorage.getItem('token');
+  const msg   = document.getElementById('sec-msg');
+  msg.style.color = '#64748b';
+  msg.textContent = 'Kaydediliyor...';
+
+  const twoFaEnabled = document.getElementById('sec-2fa-toggle').checked;
+  const email        = document.getElementById('sec-email-input').value.trim();
+  const oldPw        = document.getElementById('sec-old-pw').value;
+  const newPw        = document.getElementById('sec-new-pw').value;
+
+  // 2FA değişikliği
+  if (twoFaEnabled && !email) {
+    msg.style.color = '#ef4444';
+    msg.textContent = '2FA için e-posta adresi giriniz.';
+    return;
+  }
+
+  try {
+    const r2fa = await fetch('/crm/auth/2fa/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ enabled: twoFaEnabled, email: twoFaEnabled ? email : undefined }),
+    });
+    const d2fa = await r2fa.json();
+    if (!r2fa.ok) throw new Error(d2fa.error || '2FA ayarlanamadı.');
+
+    // Şifre değiştir (doldurulmuşsa)
+    if (oldPw && newPw) {
+      if (newPw.length < 6) { msg.style.color='#ef4444'; msg.textContent='Yeni şifre en az 6 karakter olmalı.'; return; }
+      const rpw = await fetch('/crm/users/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw }),
+      });
+      const dpw = await rpw.json();
+      if (!rpw.ok) throw new Error(dpw.error || 'Şifre değiştirilemedi.');
+    }
+
+    msg.style.color = '#22c55e';
+    msg.textContent = '✓ Ayarlar kaydedildi.';
+    document.getElementById('sec-old-pw').value = '';
+    document.getElementById('sec-new-pw').value = '';
+  } catch (err) {
+    msg.style.color = '#ef4444';
+    msg.textContent = err.message;
+  }
+}
+
+// Modal dışına tıklayınca kapat
+document.getElementById('security-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeSecurityModal();
+});
+</script></body>
 </html>

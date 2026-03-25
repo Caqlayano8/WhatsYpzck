@@ -636,9 +636,89 @@ export default function (botManager: BotManager) {
         }
     });
 
-    router.get('/auth/check', authenticate, (req, res) => {
-        res.json({ user: req.user });
+    router.get('/auth/check', authenticate, async (req, res) => {
+        try {
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const userDoc = userId ? await (UserModel as any).findById(userId).lean() : null;
+            res.json({ user: { ...(req.user as any), email: (userDoc as any)?.email || '', twoFactorEnabled: !!(userDoc as any)?.twoFactorEnabled } });
+        } catch { res.json({ user: req.user }); }
     });
+
+    // 2FA - OTP doğrulama (tempToken ile)
+    router.post('/auth/2fa/verify', async (req, res) => {
+        try {
+            const { tempToken, otp } = req.body;
+            if (!tempToken || !otp) return res.status(400).json({ error: 'tempToken ve otp gereklidir.' });
+            const result = await AuthService.verifyTwoFactorOtp(tempToken, String(otp));
+            res.json(result);
+        } catch (err: any) {
+            logger.error('2FA verify failed:', err);
+            res.status(401).json({ error: err.message || '2FA doğrulama başarısız.' });
+        }
+    });
+
+    // 2FA - OTP yeniden gönder
+    router.post('/auth/2fa/resend', async (req, res) => {
+        try {
+            const { tempToken } = req.body;
+            if (!tempToken) return res.status(400).json({ error: 'tempToken gereklidir.' });
+            const jwtLib = require('jsonwebtoken');
+            const EnvCfg = require('../../configs/env.config').default;
+            const payload: any = jwtLib.verify(tempToken, EnvCfg.JWT_SECRET);
+            if (!payload?.twoFactorPending) return res.status(400).json({ error: 'Gecersiz token.' });
+            await AuthService.sendTwoFactorOtp(payload.userId);
+            res.json({ success: true, message: 'Dogrulama kodu yeniden gonderildi.' });
+        } catch (err: any) {
+            res.status(400).json({ error: err.message || 'Kod gonderilemedi.' });
+        }
+    });
+
+    // 2FA - Aç/Kapat (giriş yapmış kullanıcı kendi hesabı için)
+    router.post('/auth/2fa/setup', authenticate, async (req, res) => {
+        try {
+            const { enabled, email } = req.body;
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            if (!userId) return res.status(401).json({ error: 'Oturum bulunamadi.' });
+            if (enabled && !email) return res.status(400).json({ error: '2FA icin e-posta adresi gereklidir.' });
+            await AuthService.setTwoFactor(userId, !!enabled, email);
+            res.json({ success: true, message: enabled ? '2FA etkinlestirildi.' : '2FA devre disi birakildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || '2FA ayarlanamadi.' });
+        }
+    });
+
+    // 2FA - Admin başkasının 2FA durumunu ayarla
+    router.post('/auth/2fa/admin-setup', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { userId, enabled, email } = req.body;
+            if (!userId) return res.status(400).json({ error: 'userId gereklidir.' });
+            await AuthService.setTwoFactor(userId, !!enabled, email);
+            res.json({ success: true });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || '2FA ayarlanamadi.' });
+        }
+    });
+    // Kendi şifresini değiştir
+    router.post('/users/change-password', authenticate, async (req, res) => {
+        try {
+            const { oldPassword, newPassword } = req.body;
+            if (!oldPassword || !newPassword) return res.status(400).json({ error: 'Eski ve yeni şifre gereklidir.' });
+            if (newPassword.length < 6) return res.status(400).json({ error: 'Yeni şifre en az 6 karakter olmalıdır.' });
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const user = await UserModel.findById(userId);
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
+            const bcrypt = require('bcrypt');
+            const isMatch = await bcrypt.compare(oldPassword, user.password);
+            if (!isMatch) return res.status(401).json({ error: 'Mevcut şifre hatalı.' });
+            user.password = await bcrypt.hash(newPassword, 10);
+            await user.save();
+            res.json({ success: true, message: 'Şifre başarıyla değiştirildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'Şifre değiştirilemedi.' });
+        }
+    });
+
+
 
     // Settings
     router.get('/settings', authenticate, authorizeAdmin, async (req, res) => {
