@@ -38,6 +38,8 @@ window.AdminState = {
   chatsSearchMode:          false,
   commandPrefix:            '/',
   recapGroups:              [],
+  contactGroups:            [],
+  editingContactGroupId:    null,
   incidents:                [],
   incidentSearch:           '',
 };

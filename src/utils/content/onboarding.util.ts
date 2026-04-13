@@ -17,27 +17,32 @@ const isUserOnboarded = async (chat: Chat) => {
 }
 
 export const onboard = async (message: Message, userI18n: UserI18n, autoOnboard: boolean = true, filePath = AppConfig.instance.getOnboardingVideoPath()) => {
-    const chat = await message.getChat();
+    let chat: Chat | null = null;
 
-    if (autoOnboard && await isUserOnboarded(chat)) {
+    try {
+        chat = await message.getChat();
+
+        if (autoOnboard && await isUserOnboarded(chat)) {
+            return;
+        }
+
+        if (chat) await chat.sendStateTyping();
+        const caption = userI18n.t('onboardMessages.caption', { botName: AppConfig.instance.getBotName() });
+        const pleaseHelp = userI18n.t('onboardMessages.pleaseHelp', { prefix: AppConfig.instance.getBotPrefix() });
+
+        if (!filePath || !fs.existsSync(filePath)) {
+            await message.reply(`${caption}\n\n${pleaseHelp}`);
+            return;
+        }
+
+        const media = MessageMedia.fromFilePath(filePath);
+        await message.reply(media, null, {
+            caption: `${caption}\n\n${pleaseHelp}`,
+        });
+    } catch (_error) {
+        // Onboarding aksasa bile asıl mesaj işleme akışı devam etsin.
         return;
+    } finally {
+        if (chat) await chat.clearState().catch(() => {});
     }
-
-    if (chat) await chat.sendStateTyping();
-    const caption = userI18n.t('onboardMessages.caption', { botName: AppConfig.instance.getBotName() });
-    const pleaseHelp = userI18n.t('onboardMessages.pleaseHelp', { prefix: AppConfig.instance.getBotPrefix() });
-
-    if (!filePath || !fs.existsSync(filePath)) {
-        await message.reply(`${caption}\n\n${pleaseHelp}`);
-        if (chat) await chat.clearState();
-        return;
-    }
-
-    const media = MessageMedia.fromFilePath(filePath);
-    await message.reply(media, null, {
-        caption: `${caption}\n\n${pleaseHelp}`,
-    });
-
-    if (chat) await chat.clearState();
-
 }

@@ -1,0 +1,17 @@
+[
+  {
+    "session_id": "20260327-143313-00d1e82a",
+    "mode": "demo",
+    "exchange": "binance",
+    "started_at": "2026-03-27T14:33:13.490697",
+    "ended_at": null,
+    "status": "running",
+    "initial_equity": 1000.0,
+    "final_equity": 1003.36689284,
+    "realized_pnl": 3.36689284,
+    "net_pnl": 3.36689284,
+    "trade_count": 12,
+    "win_count": 6,
+    "loss_count": 1
+  }
+]

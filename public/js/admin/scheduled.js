@@ -6,7 +6,7 @@ async function loadScheduledMessages() {
     const msgs = await apiFetch('/crm/scheduled-messages');
     renderScheduledMessages(msgs);
   } catch {
-    showToast('Failed to load scheduled messages', 'error');
+    showToast('Zamanlanmis mesajlar yuklenemedi', 'error');
   }
 }
 
@@ -21,16 +21,18 @@ function renderScheduledMessages(msgs) {
   }
   if (empty) empty.classList.add('hidden');
   const statusBadge = s => ({
-    pending:   '<span class="badge badge-scheduled">Pending</span>',
-    sent:      '<span class="badge badge-sent">Sent</span>',
-    failed:    '<span class="badge badge-failed">Failed</span>',
-    cancelled: '<span class="badge badge-draft">Cancelled</span>',
+    pending:   '<span class="badge badge-scheduled">Bekliyor</span>',
+    sent:      '<span class="badge badge-sent">Gonderildi</span>',
+    failed:    '<span class="badge badge-failed">Basarisiz</span>',
+    cancelled: '<span class="badge badge-draft">Iptal Edildi</span>',
   }[s] || s);
   tbody.innerHTML = msgs.map(m => `
     <tr class="trow border-b border-gray-100">
       <td class="px-5 py-3 text-sm">
-        <div class="font-medium text-gray-800">${escHtml(m.contactName || m.phoneNumber)}</div>
-        ${m.contactName ? `<div class="text-xs text-gray-400">${escHtml(m.phoneNumber)}</div>` : ''}
+        <div class="font-medium text-gray-800">${escHtml(m.groupName || m.contactName || m.phoneNumber || 'Grup mesaji')}</div>
+        ${m.groupName
+          ? `<div class="text-xs text-gray-400">${m.recipientCount || (m.recipientPhones || []).length} kisiye gidecek</div>`
+          : (m.contactName ? `<div class="text-xs text-gray-400">${escHtml(m.phoneNumber)}</div>` : '')}
       </td>
       <td class="px-5 py-3 text-sm text-gray-600 max-w-xs truncate">${escHtml(m.message)}</td>
       <td class="px-5 py-3 text-sm text-gray-700">${fmtDate(m.scheduledAt)}</td>
@@ -42,7 +44,7 @@ function renderScheduledMessages(msgs) {
 }
 
 window.openScheduledContactPicker = function () {
-  const phone = prompt('Enter phone number:');
+  const phone = prompt('Telefon numarasini girin:');
   if (phone) {
     document.getElementById('sched-phone').value = phone.replace(/\D/g, '');
   }
@@ -52,27 +54,27 @@ window.saveScheduledMessage = async function () {
   const phoneNumber = document.getElementById('sched-phone').value.trim().replace(/\D/g, '');
   const message     = document.getElementById('sched-message').value.trim();
   const scheduledAt = document.getElementById('sched-at').value;
-  if (!phoneNumber) return showToast('Phone number is required', 'error');
-  if (!message)     return showToast('Message is required', 'error');
-  if (!scheduledAt) return showToast('Scheduled time is required', 'error');
-  if (new Date(scheduledAt) <= new Date()) return showToast('Scheduled time must be in the future', 'error');
+  if (!phoneNumber) return showToast('Telefon numarasi zorunludur', 'error');
+  if (!message)     return showToast('Mesaj zorunludur', 'error');
+  if (!scheduledAt) return showToast('Zamanlama alani zorunludur', 'error');
+  if (new Date(scheduledAt) <= new Date()) return showToast('Zamanlama saati gelecekte olmalidir', 'error');
   try {
     await apiFetch('/crm/scheduled-messages', 'POST', { phoneNumber, message, scheduledAt });
     closeScheduledModal();
-    showToast('Message scheduled', 'success');
+    showToast('Mesaj zamanlandi', 'success');
     loadScheduledMessages();
   } catch {
-    showToast('Failed to schedule message', 'error');
+    showToast('Mesaj zamanlanamadi', 'error');
   }
 };
 
 window.deleteScheduledMessage = async function (id) {
-  if (!confirm('Cancel this scheduled message?')) return;
+  if (!confirm('Bu zamanlanmis mesaj iptal edilsin mi?')) return;
   try {
     await apiFetch(`/crm/scheduled-messages/${id}`, 'DELETE');
-    showToast('Scheduled message cancelled', 'success');
+    showToast('Zamanlanmis mesaj iptal edildi', 'success');
     loadScheduledMessages();
   } catch {
-    showToast('Failed to cancel message', 'error');
+    showToast('Mesaj iptal edilemedi', 'error');
   }
 };

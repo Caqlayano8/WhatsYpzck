@@ -75,6 +75,10 @@ function formatSlackMessage(event: string, payload: Record<string, any>): string
             return `⚠️ *Scheduled message* to \`${payload.phoneNumber}\` failed: ${payload.error}`;
         case 'autoreply.triggered':
             return `🤖 *Auto-reply* triggered for \`${payload.phoneNumber}\` (rule: ${payload.rule})`;
+        case 'incident.created':
+            return `🚨 *Incident created* \`${payload.incidentId}\` — ${payload.customerName || 'unknown'} (${payload.customerPhone || 'unknown'})`;
+        case 'incident.status.updated':
+            return `🛠️ *Incident status updated* \`${payload.incidentId}\` → ${payload.statusLabel || payload.status}`;
         default:
             return `🔔 Event: *${event}*\n\`\`\`${JSON.stringify(payload, null, 2)}\`\`\``;
     }
@@ -117,6 +121,8 @@ function formatEmailSubject(event: string, payload: Record<string, any>): string
         case 'scheduled.sent':     return `[WhatsYpzck] Scheduled message sent to ${payload.phoneNumber}`;
         case 'scheduled.failed':   return `[WhatsYpzck] Scheduled message failed: ${payload.phoneNumber}`;
         case 'autoreply.triggered':return `[WhatsYpzck] Auto-reply triggered for ${payload.phoneNumber}`;
+        case 'incident.created':   return `[WhatsYpzck] Incident created: ${payload.incidentId}`;
+        case 'incident.status.updated': return `[WhatsYpzck] Incident status updated: ${payload.incidentId} -> ${payload.statusLabel || payload.status}`;
         default:                   return `[WhatsYpzck] Event: ${event}`;
     }
 }
@@ -157,6 +163,10 @@ function formatDiscordMessage(event: string, payload: Record<string, any>): stri
             return `⚠️ **Scheduled message** to \`${payload.phoneNumber}\` failed: ${payload.error}`;
         case 'autoreply.triggered':
             return `🤖 **Auto-reply** triggered for \`${payload.phoneNumber}\` (rule: ${payload.rule})`;
+        case 'incident.created':
+            return `🚨 **Incident created** \`${payload.incidentId}\` — ${payload.customerName || 'unknown'} (${payload.customerPhone || 'unknown'})`;
+        case 'incident.status.updated':
+            return `🛠️ **Incident status updated** \`${payload.incidentId}\` → ${payload.statusLabel || payload.status}`;
         default:
             return `🔔 Event: **${event}**\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
     }

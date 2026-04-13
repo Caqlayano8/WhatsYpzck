@@ -6,8 +6,13 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IScheduledMessage extends Document {
-    phoneNumber: string;
+    recipientType: 'single' | 'group';
+    phoneNumber?: string;
     contactName?: string;
+    groupId?: string;
+    groupName?: string;
+    recipientPhones?: string[];
+    recipientCount?: number;
     message: string;
     scheduledAt: Date;
     status: 'pending' | 'sent' | 'failed' | 'cancelled';
@@ -17,8 +22,13 @@ export interface IScheduledMessage extends Document {
 }
 
 const ScheduledMessageSchema = new Schema<IScheduledMessage>({
-    phoneNumber:  { type: String, required: true },
+    recipientType: { type: String, enum: ['single', 'group'], default: 'single' },
+    phoneNumber:  { type: String },
     contactName:  { type: String },
+    groupId:      { type: String },
+    groupName:    { type: String },
+    recipientPhones: [{ type: String }],
+    recipientCount: { type: Number, default: 1 },
     message:      { type: String, required: true },
     scheduledAt:  { type: Date, required: true },
     status:       { type: String, enum: ['pending', 'sent', 'failed', 'cancelled'], default: 'pending' },
