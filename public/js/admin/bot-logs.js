@@ -11,13 +11,13 @@ window.loadBotStatus = async function () {
     const qrEl    = document.getElementById('qr-container');
 
     dot.className  = `status-dot ${data.status}`;
-    text.textContent = data.status === 'connected' ? 'Connected'
-                     : data.status === 'scanning'  ? 'Scanning QR Code'
-                     : 'Disconnected';
+    text.textContent = data.status === 'connected' ? 'Bağlı'
+                     : data.status === 'scanning'  ? 'QR Kodu Taranıyor'
+                     : 'Bağlantı Kesildi';
 
     let html = '';
-    if (data.phone)    html += `<div><span class="text-gray-400">Phone:</span> <span class="font-medium">${escHtml(data.phone)}</span></div>`;
-    if (data.pushName) html += `<div><span class="text-gray-400">Name:</span> <span class="font-medium">${escHtml(data.pushName)}</span></div>`;
+    if (data.phone)    html += `<div><span class="text-gray-400">Telefon:</span> <span class="font-medium">${escHtml(data.phone)}</span></div>`;
+    if (data.pushName) html += `<div><span class="text-gray-400">Ad:</span> <span class="font-medium">${escHtml(data.pushName)}</span></div>`;
     details.innerHTML = html;
 
     if (data.uptime !== undefined) {
@@ -34,24 +34,24 @@ window.loadBotStatus = async function () {
       if (typeof QRCode !== 'undefined') {
         AS.qrInstance = new QRCode(qrEl, { text: data.qrCode, width: 200, height: 200 });
       } else {
-        qrEl.textContent = 'QR library not available';
+        qrEl.textContent = 'QR kütüphanesi mevcut değil';
       }
     } else {
       qrWrap.classList.add('hidden');
       if (AS.qrInstance) { try { AS.qrInstance.clear(); } catch (_) {} AS.qrInstance = null; }
     }
   } catch {
-    showToast('Failed to load bot status', 'error');
+    showToast('Bot durumu yüklenemedi', 'error');
   }
 };
 
 window.reconnectBot = async function () {
   try {
     await apiFetch('/crm/bot/reconnect', 'POST');
-    showToast('Reconnecting bot…', 'info');
+    showToast('Bot yeniden bağlanıyor…', 'info');
     setTimeout(loadBotStatus, 3000);
   } catch {
-    showToast('Reconnect failed', 'error');
+    showToast('Yeniden bağlanma başarısız', 'error');
   }
 };
 

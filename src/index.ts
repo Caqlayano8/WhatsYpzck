@@ -4,6 +4,9 @@
  */
 
 import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import bodyParser from 'body-parser';
 import logger from "./configs/logger.config";
 import EnvConfig from "./configs/env.config";
@@ -16,7 +19,7 @@ import { initCrons } from "./crons/index.cron";
 import { hydrateRuntimeConfigFromSettings } from "./utils/system/runtime-config.util";
 import { initializeSherpaModels } from "./utils/media/sherpa-model-downloader.util";
 import { AppConfig } from "./configs/app.config";
-import { ensureDefaultAdminUser } from "./crm/utils/seed-default-admin.util";
+import { ensureDefaultUsers } from "./crm/utils/seed-default-admin.util";
 import { enforceLicenseOrThrow } from "./utils/system/license.util";
 
 // Global error handlers to prevent crashes (Log but don't exit - let the app continue running)
@@ -69,6 +72,7 @@ app.get('/public/js/widget.js', (_req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.sendFile(path.join(process.cwd(), 'public', 'js', 'widget.js'));
 });
+app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE'], allowedHeaders: ['Content-Type','Authorization'] }));
 app.use("/public", express.static("public"));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -83,6 +87,31 @@ app.get('/admin/login', (req, res) => {
     res.render('admin-login');
 });
 
+app.get('/admin/security', (req, res) => {
+    res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.render('admin-security');
+});
+
+app.get('/panel', (req, res) => {
+    res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.render('panel');
+});
+
+app.get(['/mobile', '/web-mobile', '/webmobil', '/panel/mobile'], (req, res) => {
+    res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.render('panel');
+});
+
+app.get('/panel/login', (req, res) => {
+    res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.render('panel-login');
+});
+
+app.get(['/mobile/login', '/web-mobile/login', '/webmobil/login', '/panel/mobile/login'], (req, res) => {
+    res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.render('panel-login');
+});
+
 const botManager = BotManager.getInstance();
 
 app.use("/", apiRoutes(botManager));
@@ -90,7 +119,7 @@ app.use("/", apiRoutes(botManager));
 async function bootstrap() {
     enforceLicenseOrThrow();
     await connectDB();
-    await ensureDefaultAdminUser();
+    await ensureDefaultUsers();
     await hydrateRuntimeConfigFromSettings();
     await initializeSherpaModels();
     initCrons(botManager);

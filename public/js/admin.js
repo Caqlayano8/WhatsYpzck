@@ -65,9 +65,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', e => {
-        e.preventDefault();
         const conf = tabMap[item.id];
         if (!conf) return;
+        e.preventDefault();
 
         if (item.id !== 'bot-tab') stopLogStream();
 

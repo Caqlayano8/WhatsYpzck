@@ -37,6 +37,14 @@ const settingsSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    aggressiveMode: {
+        type: Boolean,
+        default: false
+    },
+    restrictionsRemoved: {
+        type: Boolean,
+        default: false
+    },
     smtp: {
         host:     { type: String, default: '' },
         port:     { type: Number, default: 587 },
@@ -81,7 +89,12 @@ const settingsSchema = new mongoose.Schema({
             type: String,
             default: 'Sayin Musterimiz,\n\nElektrik ariza bildiriminiz sistemimize basariyla kaydedilmistir.\nAsagida basvurunuza ait bilgiler yer almaktadir:\n\nKayit No: {{incidentId}}\nMusteri Ismi: {{customerName}}\nTelefon: {{customerPhone}}\nE-Posta: {{customerEmail}}\nAdres: {{address}}\nTesisat/Sayac No: {{meterNo}}\nOlusturma Zamani: {{createdAt}}\n\nBelirtmis oldugunuz ariza bildirimi yukaridaki gibidir. Lutfen bu bilgileri saklayiniz.\nDaha sonra bu bilgiler uzerinden ariza kaydinizi sorgulayabilirsiniz.\n\n{{closingLine}}\n{{institutionName}}\nYetkili: {{signatureName}}'
         }
-    }
+    },
+    maintenanceMode: {
+        enabled: { type: Boolean, default: false },
+        message: { type: String,  default: '' },
+        endsAt:  { type: Date,    default: null },
+    },
 }, {
     timestamps: true
 });

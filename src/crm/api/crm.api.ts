@@ -1,12 +1,41 @@
+
+    // Aggressive Mode Toggle
+    router.post('/settings/aggressive-mode', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { aggressiveMode: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.aggressiveMode', 'settings', undefined, { enabled });
+            res.json({ success: true, aggressiveMode: settings.aggressiveMode });
+        } catch (error) {
+            logger.error('Failed to update aggressive mode:', error);
+            res.status(500).json({ error: 'Failed to update aggressive mode' });
+        }
+    });
+
+    // Remove Restrictions Toggle
+    router.post('/settings/remove-restrictions', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { restrictionsRemoved: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.restrictionsRemoved', 'settings', undefined, { enabled });
+            res.json({ success: true, restrictionsRemoved: settings.restrictionsRemoved });
+        } catch (error) {
+            logger.error('Failed to update restrictionsRemoved:', error);
+            res.status(500).json({ error: 'Failed to update restrictionsRemoved' });
+        }
+    });
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import { BotManager } from '../../bot.manager';
 import logger from '../../configs/logger.config';
-import { authenticate, authorizeAdmin } from '../middlewares/auth.middleware';
+import { authenticate, authorizeAdmin, authorizePermission } from '../middlewares/auth.middleware';
 import { CampaignModel } from '../models/campaign.model';
 import { ContactModel } from '../models/contact.model';
-import { AuthService } from '../utils/auth.util';
+import { AuthService, normalizeUserRole } from '../utils/auth.util';
 import { TemplateModel } from '../models/template.model';
 import { SettingsModel } from '../models/settings.model';
 import { PhoneDetectionUtil } from '../../utils/location/phone-detection.util';
@@ -19,6 +48,7 @@ import { MessageModel } from '../models/message.model';
 import { ScoreRuleModel } from '../models/score-rule.model';
 import { TemplateRevisionModel } from '../models/template-revision.model';
 import { ScheduledMessageModel } from '../models/scheduled-message.model';
+import { ContactGroupModel } from '../models/contact-group.model';
 import { messageEmitter } from '../../utils/events/message-emitter.util';
 import { IntegrationModel, INTEGRATION_EVENTS } from '../models/integration.model';
 import { AutoReplyModel } from '../models/auto-reply.model';
@@ -31,7 +61,10 @@ import { FlowSessionModel } from '../models/flow-session.model';
 import { geminiCompletion } from '../../utils/ai/gemini.util';
 import { claudeCompletion } from '../../utils/ai/claude.util';
 import { chatGptCompletion } from '../../utils/ai/chat-gpt.util';
+import { formatTrDateTime } from '../../utils/system/datetime.util';
+import { isLidConversationPhone, normalizeConversationPhone } from '../../utils/whatsapp/conversation-phone.util';
 import crypto from 'crypto';
+import ExcelJS from 'exceljs';
 
 export const router = express.Router();
 
@@ -79,6 +112,56 @@ function toWhatsAppChatId(raw: string): string | null {
     return `${digits}@c.us`;
 }
 
+const conversationPhoneCache = new Map<string, string>();
+
+async function resolveConversationPhone(raw: string, botManager: BotManager): Promise<string> {
+    const value = String(raw || '').trim();
+    if (!value) return '';
+
+    const cached = conversationPhoneCache.get(value);
+    if (cached) return cached;
+
+    let resolved = normalizeConversationPhone(value);
+
+    if (isLidConversationPhone(value) && typeof (botManager.client as any)?.getContactLidAndPhone === 'function') {
+        try {
+            const match = await (botManager.client as any).getContactLidAndPhone([value]);
+            const mappedPhone = match?.[0]?.pn;
+            if (mappedPhone) {
+                resolved = normalizeConversationPhone(String(mappedPhone));
+            }
+        } catch (_) {
+            // fall back to normalized raw lid id
+        }
+    }
+
+    conversationPhoneCache.set(value, resolved);
+    if (resolved) {
+        conversationPhoneCache.set(resolved, resolved);
+    }
+    return resolved;
+}
+
+async function buildConversationResolutionMap(rawPhones: string[], botManager: BotManager): Promise<Map<string, string>> {
+    const entries = await Promise.all(
+        Array.from(new Set((rawPhones || []).map((phone) => String(phone || '').trim()).filter(Boolean))).map(async (phone) => {
+            const canonical = await resolveConversationPhone(phone, botManager);
+            return [phone, canonical || normalizeConversationPhone(phone)] as const;
+        })
+    );
+
+    return new Map(entries);
+}
+
+function pickConversationContact(contacts: any[], canonicalPhone: string): any | null {
+    const match = (contacts || []).find((contact) => normalizeConversationPhone(contact.phoneNumber) === canonicalPhone);
+    return match || null;
+}
+
+function getBotOwnConversationPhone(botManager: BotManager): string {
+    return normalizeConversationPhone(String((botManager.client as any)?.info?.wid?._serialized || (botManager.client as any)?.info?.wid?.user || ''));
+}
+
 function incidentStatusLabel(status: string): string {
     const map: Record<string, string> = {
         ALINDI: 'Kayit alindi',
@@ -88,6 +171,44 @@ function incidentStatusLabel(status: string): string {
         KAPATILDI: 'Kapatildi'
     };
     return map[String(status || '').toUpperCase()] || 'Bilinmiyor';
+}
+
+function slugifyGroupName(value: string): string {
+    return String(value || '')
+        .toLocaleLowerCase('tr-TR')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
+function parseGroupList(value: any): string[] {
+    if (Array.isArray(value)) {
+        return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean)));
+    }
+
+    return Array.from(new Set(
+        String(value || '')
+            .split(/[\n,;]/)
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+    ));
+}
+
+async function persistOutboundAdminMessage(phoneNumber: string, message: string, sentMessage: any) {
+    const canonicalPhone = normalizeConversationPhone(phoneNumber);
+    const msgDoc = await MessageModel.create({
+        phoneNumber: canonicalPhone,
+        body: message,
+        type: 'text',
+        direction: 'out',
+        whatsappMessageId: sentMessage?.id?._serialized,
+        sentVia: 'admin',
+        read: true,
+        timestamp: new Date()
+    });
+    messageEmitter.emit('message', msgDoc.toObject());
+    return msgDoc;
 }
 
 function isValidEmail(value: string): boolean {
@@ -175,7 +296,7 @@ function contactsToCSV(contacts: any[]): string {
         (c.tags || []).join(';'),
         c.blocked ? '1' : '0', c.archived ? '1' : '0'
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-    return [header, ...rows].join('\n');
+    return '\uFEFF' + [header, ...rows].join('\n');
 }
 
 export default function (botManager: BotManager) {
@@ -264,10 +385,49 @@ export default function (botManager: BotManager) {
     router.get('/contacts/export', authenticate, authorizeAdmin, async (req, res) => {
         try {
             const contacts = await ContactModel.find({ blocked: { $ne: true } }).sort('-lastInteraction');
-            const csv = contactsToCSV(contacts);
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', 'attachment; filename="contacts.csv"');
-            res.send(csv);
+
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'WhatsYpzck CRM';
+            const sheet = workbook.addWorksheet('Kişiler');
+            sheet.columns = [
+                { header: 'Telefon',        key: 'phoneNumber',     width: 20 },
+                { header: 'Ad',             key: 'name',            width: 25 },
+                { header: 'WhatsApp Adı',   key: 'pushName',        width: 25 },
+                { header: 'Dil',            key: 'language',        width: 12 },
+                { header: 'Ülke',           key: 'country',         width: 12 },
+                { header: 'Bölge',          key: 'region',          width: 20 },
+                { header: 'Son Etkileşim',  key: 'lastInteraction', width: 22 },
+                { header: 'Etiketler',      key: 'tags',            width: 30 },
+                { header: 'Engelli',        key: 'blocked',         width: 10 },
+                { header: 'Arşivlendi',     key: 'archived',        width: 12 },
+            ];
+            const headerRow = sheet.getRow(1);
+            headerRow.eachCell(cell => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+            headerRow.height = 20;
+
+            contacts.forEach((c: any) => {
+                sheet.addRow({
+                    phoneNumber:     c.phoneNumber || '',
+                    name:            c.name || '',
+                    pushName:        c.pushName || '',
+                    language:        c.detectedLanguage || '',
+                    country:         c.detectedCountry || '',
+                    region:          c.detectedRegion || '',
+                    lastInteraction: c.lastInteraction ? new Date(c.lastInteraction).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '',
+                    tags:            (c.tags || []).join('; '),
+                    blocked:         c.blocked ? 'Evet' : 'Hayır',
+                    archived:        c.archived ? 'Evet' : 'Hayır',
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent('kisiler.xlsx')}`);
+            await workbook.xlsx.write(res);
+            res.end();
         } catch (error) {
             logger.error('Failed to export contacts:', error);
             res.status(500).json({ error: 'Failed to export contacts' });
@@ -477,8 +637,8 @@ export default function (botManager: BotManager) {
     // Auth
     router.post('/auth/register', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { username, password, role } = req.body;
-            const user = await AuthService.register(username, password, role || 'admin');
+            const { username, password, role, displayName, phone } = req.body;
+            const user = await AuthService.register(username, password, normalizeUserRole(role), displayName, phone);
             res.status(201).json(user);
         } catch (error) {
             logger.error('Registration failed:', error);
@@ -486,20 +646,159 @@ export default function (botManager: BotManager) {
         }
     });
 
-    router.post('/auth/login', async (req, res) => {
+    const loginLimiter = rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 dakika
+        max: 10, // 15 dakikada en fazla 10 deneme
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { error: 'Çok fazla giriş denemesi. Lütfen 15 dakika sonra tekrar deneyin.' },
+    });
+    router.post('/auth/login', loginLimiter, async (req, res) => {
         try {
             const { username, password } = req.body;
             const { token, user } = await AuthService.login(username, password);
             res.json({ token, user });
         } catch (error) {
             logger.error('Login failed:', error);
-            res.status(401).json({ error: error.message });
+            res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' });
         }
     });
 
-    router.get('/auth/check', authenticate, (req, res) => {
-        res.json({ user: req.user });
+    router.get('/auth/check', authenticate, async (req, res) => {
+        try {
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const userDoc = userId ? await (UserModel as any).findById(userId).lean() : null;
+            res.json({ user: { ...(req.user as any), email: (userDoc as any)?.email || '', twoFactorEnabled: !!(userDoc as any)?.twoFactorEnabled } });
+        } catch { res.json({ user: req.user }); }
     });
+
+    // 2FA - OTP/TOTP doğrulama (tempToken ile)
+    router.post('/auth/2fa/verify', async (req, res) => {
+        try {
+            const { tempToken, otp, method } = req.body;
+            if (!tempToken || !otp) return res.status(400).json({ error: 'tempToken ve otp gereklidir.' });
+            if (method === 'totp') {
+                let payload: any;
+                try { payload = require('jsonwebtoken').verify(tempToken, process.env.JWT_SECRET || 'secret') as any; }
+                catch { return res.status(401).json({ error: 'Gecersiz veya suresi dolmus oturum.' }); }
+                if (!payload.twoFactorPending) return res.status(401).json({ error: 'Gecersiz token.' });
+                const isValid = await AuthService.verifyTotpLogin(payload.userId, String(otp));
+                if (!isValid) return res.status(401).json({ error: 'Gecersiz dogrulama kodu.' });
+                const u = await UserModel.findById(payload.userId);
+                if (!u) return res.status(404).json({ error: 'Kullanici bulunamadi.' });
+                const tkn = require('jsonwebtoken').sign(
+                    { userId: String(u._id), role: u.role, username: u.username, _id: String(u._id), permissions: (u as any).permissions || {} },
+                    process.env.JWT_SECRET || 'secret', { expiresIn: process.env.JWT_EXPIRES_IN || '2h' });
+                await UserModel.updateOne({ _id: u._id }, { lastLogin: new Date() });
+                return res.json({ token: tkn, user: { _id: String(u._id), username: u.username, displayName: (u as any).displayName || u.username, role: u.role } });
+            }
+            const result = await AuthService.verifyTwoFactorOtp(tempToken, String(otp));
+            res.json(result);
+        } catch (err: any) {
+            logger.error('2FA verify failed:', err);
+            res.status(401).json({ error: err.message || '2FA doğrulama başarısız.' });
+        }
+    });
+
+    // 2FA - OTP yeniden gönder
+    router.post('/auth/2fa/resend', async (req, res) => {
+        try {
+            const { tempToken } = req.body;
+            if (!tempToken) return res.status(400).json({ error: 'tempToken gereklidir.' });
+            const jwtLib = require('jsonwebtoken');
+            const EnvCfg = require('../../configs/env.config').default;
+            const payload: any = jwtLib.verify(tempToken, EnvCfg.JWT_SECRET);
+            if (!payload?.twoFactorPending) return res.status(400).json({ error: 'Gecersiz token.' });
+            await AuthService.sendTwoFactorOtp(payload.userId);
+            res.json({ success: true, message: 'Dogrulama kodu yeniden gonderildi.' });
+        } catch (err: any) {
+            res.status(400).json({ error: err.message || 'Kod gonderilemedi.' });
+        }
+    });
+
+    // 2FA - Aç/Kapat (giriş yapmış kullanıcı kendi hesabı için)
+    router.post('/auth/2fa/setup', authenticate, async (req, res) => {
+        try {
+            const { enabled, email } = req.body;
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            if (!userId) return res.status(401).json({ error: 'Oturum bulunamadi.' });
+            if (enabled && !email) return res.status(400).json({ error: '2FA icin e-posta adresi gereklidir.' });
+            await AuthService.setTwoFactor(userId, !!enabled, email);
+            res.json({ success: true, message: enabled ? '2FA etkinlestirildi.' : '2FA devre disi birakildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || '2FA ayarlanamadi.' });
+        }
+    });
+
+    // 2FA - Admin başkasının 2FA durumunu ayarla
+    router.post('/auth/2fa/admin-setup', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { userId, enabled, email } = req.body;
+            if (!userId) return res.status(400).json({ error: 'userId gereklidir.' });
+            await AuthService.setTwoFactor(userId, !!enabled, email);
+            res.json({ success: true });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || '2FA ayarlanamadi.' });
+    // TOTP - Google Authenticator kurulum: QR kod ve secret üret
+    router.post('/auth/2fa/totp-setup', authenticate, async (req, res) => {
+        try {
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const result = await AuthService.setupTotp(userId);
+            res.json(result);
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'TOTP kurulumu basarisiz.' });
+        }
+    });
+
+    // TOTP - 6 haneli kodu doğrula ve aktifleştir
+    router.post('/auth/2fa/totp-activate', authenticate, async (req, res) => {
+        try {
+            const { token } = req.body;
+            if (!token) return res.status(400).json({ error: 'Dogrulama kodu gereklidir.' });
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const ok = await AuthService.verifyAndActivateTotp(userId, String(token));
+            if (!ok) return res.status(400).json({ error: 'Gecersiz dogrulama kodu. Uygulamadaki kodu tekrar deneyin.' });
+            res.json({ success: true, message: 'Google Authenticator 2FA basariyla etkinlestirildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'TOTP aktivasyon basarisiz.' });
+        }
+    });
+
+    // TOTP - Devre dışı bırak
+    router.post('/auth/2fa/totp-disable', authenticate, async (req, res) => {
+        try {
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            await AuthService.setTwoFactor(userId, false, undefined, 'email');
+            await (UserModel as any).updateOne({ _id: userId }, { totpSecret: null });
+            res.json({ success: true, message: 'TOTP 2FA devre disi birakildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'TOTP devre disi birakilamadi.' });
+        }
+    });
+
+        }
+    });
+    // Kendi şifresini değiştir
+    router.post('/users/change-password', authenticate, async (req, res) => {
+        try {
+            const { oldPassword, newPassword } = req.body;
+            if (!oldPassword || !newPassword) return res.status(400).json({ error: 'Eski ve yeni şifre gereklidir.' });
+            if (newPassword.length < 6) return res.status(400).json({ error: 'Yeni şifre en az 6 karakter olmalıdır.' });
+            const userId = (req.user as any)?.userId || (req.user as any)?._id;
+            const user = await UserModel.findById(userId);
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
+            const bcrypt = require('bcrypt');
+            const isMatch = await bcrypt.compare(oldPassword, user.password);
+            if (!isMatch) return res.status(401).json({ error: 'Mevcut şifre hatalı.' });
+            user.password = await bcrypt.hash(newPassword, 10);
+            await user.save();
+            res.json({ success: true, message: 'Şifre başarıyla değiştirildi.' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message || 'Şifre değiştirilemedi.' });
+        }
+    });
+
+
 
     // Settings
     router.get('/settings', authenticate, authorizeAdmin, async (req, res) => {
@@ -642,9 +941,86 @@ export default function (botManager: BotManager) {
         }
     });
 
-    router.get('/incidents', authenticate, authorizeAdmin, async (req, res) => {
+
+    // Maintenance Mode routes
+    router.get('/settings/maintenance', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { q = '' } = req.query as any;
+            let settings = await SettingsModel.findOne().lean() as any;
+            if (!settings) settings = await SettingsModel.create({});
+            const mm = (settings as any).maintenanceMode || {};
+            res.json({
+                enabled: mm.enabled || false,
+                message: mm.message || '',
+                endsAt:  mm.endsAt  || null,
+            });
+        } catch (err) {
+            logger.error('Bakim modu durumu alinamadi:', err);
+            res.status(500).json({ error: 'Bakim modu durumu alinamadi' });
+        }
+    });
+
+    router.post('/settings/maintenance', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled, message, endsAt } = req.body as { enabled: boolean; message?: string; endsAt?: string };
+            const update: any = {
+                'maintenanceMode.enabled': !!enabled,
+                'maintenanceMode.message': message || '',
+                'maintenanceMode.endsAt':  endsAt ? new Date(endsAt) : null,
+            };
+            await SettingsModel.findOneAndUpdate({}, { $set: update }, { upsert: true, new: true });
+            res.json({ success: true, enabled: !!enabled });
+        } catch (err) {
+            logger.error('Bakim modu guncellenemedi:', err);
+            res.status(500).json({ error: 'Bakim modu guncellenemedi' });
+        }
+    });
+
+    // Messages received during maintenance
+    router.get('/messages/maintenance', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const msgs = await MessageModel.find({
+                direction: 'in',
+                receivedDuringMaintenance: true,
+            })
+                .sort({ timestamp: -1 })
+                .limit(100)
+                .lean();
+            res.json(msgs);
+        } catch (err) {
+            logger.error('Bakim mesajlari alinamadi:', err);
+            res.status(500).json({ error: 'Mesajlar alinamadi' });
+        }
+    });
+
+    const serializeIncident = (record: any) => ({
+        _id: record?._id ? String(record._id) : undefined,
+        id: String(record?.incidentId || record?._id || ''),
+        incidentId: String(record?.incidentId || record?._id || ''),
+        createdAt: record?.createdAt,
+        customerName: record?.customerName || 'Bilinmiyor',
+        phone: record?.customerPhone || '',
+        customerPhone: record?.customerPhone || '',
+        customerEmail: record?.customerEmail || '',
+        address: record?.address || '',
+        meterNo: record?.meterNo || '',
+        issue: record?.issueSummary || 'Elektrik arizasi bildirimi',
+        issueSummary: record?.issueSummary || 'Elektrik arizasi bildirimi',
+        sourceNumber: record?.sourcePhoneNumber || '',
+        sourcePhoneNumber: record?.sourcePhoneNumber || '',
+        status: record?.status || 'ALINDI',
+        statusHistory: Array.isArray(record?.statusHistory) ? record.statusHistory : [],
+        images: Array.isArray(record?.images) ? record.images : [],
+        photoCoords: record?.photoCoords || null,
+        locationCoords: record?.locationCoords || null,
+        techNote: Array.isArray(record?.statusHistory)
+            ? (record.statusHistory.slice().reverse().find((entry: any) => entry?.note)?.note || '')
+            : '',
+        updatedAt: record?.updatedAt,
+    });
+
+    router.get('/incidents', authenticate, authorizePermission('canViewIncidents'), async (req, res) => {
+        try {
+            const { q = '', dateFrom = '', dateTo = '', sortOrder = 'desc' } = req.query as any;
             const query = String(q || '').trim().toLowerCase();
             const mongoQuery: any = {};
             if (query) {
@@ -658,31 +1034,39 @@ export default function (botManager: BotManager) {
                     { issueSummary: { $regex: query, $options: 'i' } }
                 ];
             }
+            if (dateFrom || dateTo) {
+                mongoQuery.createdAt = {};
+                if (dateFrom) mongoQuery.createdAt.$gte = new Date(String(dateFrom));
+                if (dateTo) {
+                    const end = new Date(String(dateTo));
+                    end.setHours(23, 59, 59, 999);
+                    mongoQuery.createdAt.$lte = end;
+                }
+            }
 
+            const sortDir = String(sortOrder) === 'asc' ? 1 : -1;
             const dbRows = await IncidentModel.find(mongoQuery)
-                .sort({ createdAt: -1 })
+                .sort({ createdAt: sortDir })
                 .lean();
 
-            let filtered: any[] = dbRows.map((r: any) => ({
-                id: r.incidentId,
-                createdAt: r.createdAt,
-                customerName: r.customerName,
-                phone: r.customerPhone,
-                customerEmail: r.customerEmail || '',
-                address: r.address,
-                meterNo: r.meterNo,
-                issue: r.issueSummary,
-                sourceNumber: r.sourcePhoneNumber,
-                status: r.status,
-                updatedAt: r.updatedAt
-            }));
+            let filtered: any[] = dbRows.map((r: any) => serializeIncident(r));
 
             // Backward compatibility: if DB has no incident rows yet, keep reading historical CSV files.
             if (!filtered.length) {
                 const incidents = readIncidentCsvRecords();
-                filtered = query
+                let csv = query
                     ? incidents.filter((r: any) => [r.id, r.customerName, r.phone, r.address, r.meterNo, r.issue].join(' ').toLowerCase().includes(query))
                     : incidents;
+                if (dateFrom) {
+                    const from = new Date(String(dateFrom));
+                    csv = csv.filter((r: any) => r.createdAt && new Date(r.createdAt) >= from);
+                }
+                if (dateTo) {
+                    const to = new Date(String(dateTo)); to.setHours(23, 59, 59, 999);
+                    csv = csv.filter((r: any) => r.createdAt && new Date(r.createdAt) <= to);
+                }
+                if (sortDir === 1) csv.reverse();
+                filtered = csv;
             }
 
             res.json({ data: filtered, total: filtered.length });
@@ -692,7 +1076,110 @@ export default function (botManager: BotManager) {
         }
     });
 
-    router.get('/incidents/:id', authenticate, authorizeAdmin, async (req, res) => {
+    // Excel export for incidents with images and GPS address lookup
+    router.get('/incidents/export', authenticate, authorizePermission('canViewIncidents'), async (req, res) => {
+        try {
+            const { dateFrom = '', dateTo = '', status = '' } = req.query as any;
+            const mongoQuery: any = {};
+            if (status) mongoQuery.status = String(status).toUpperCase();
+            if (dateFrom || dateTo) {
+                mongoQuery.createdAt = {};
+                if (dateFrom) mongoQuery.createdAt.$gte = new Date(String(dateFrom));
+                if (dateTo) {
+                    const end = new Date(String(dateTo)); end.setHours(23, 59, 59, 999);
+                    mongoQuery.createdAt.$lte = end;
+                }
+            }
+            const rows = await IncidentModel.find(mongoQuery).sort({ createdAt: -1 }).lean();
+
+            // Nominatim reverse geocoding helper (free, no API key needed)
+            const getAddress = async (lat?: number, lng?: number): Promise<string> => {
+                if (!lat || !lng) return '';
+                try {
+                    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=tr`;
+                    const resp = await fetch(url, { headers: { 'User-Agent': 'WhatsYpzck/1.0' } });
+                    if (!resp.ok) return `${lat},${lng}`;
+                    const data = await resp.json() as any;
+                    return data?.display_name || `${lat},${lng}`;
+                } catch { return `${lat},${lng}`; }
+            };
+
+            const STATUS_LABELS: Record<string, string> = {
+                ALINDI: 'Bekliyor', INCELEMEDE: 'İncelemede', ISLEME_ALINDI: 'İşlemde',
+                COZUMLENDI: 'Tamamlandı', KAPATILDI: 'Kapatıldı',
+            };
+
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'WhatsYpzck';
+            const ws = workbook.addWorksheet('Arıza Kayıtları');
+            ws.columns = [
+                { header: 'Kayıt No', key: 'kayitNo', width: 16 },
+                { header: 'Tarih', key: 'tarih', width: 20 },
+                { header: 'Müşteri', key: 'musteri', width: 22 },
+                { header: 'Telefon', key: 'telefon', width: 16 },
+                { header: 'E-posta', key: 'eposta', width: 24 },
+                { header: 'Adres', key: 'adres', width: 32 },
+                { header: 'Sayaç / Tesisat', key: 'sayac', width: 18 },
+                { header: 'Arıza Özeti', key: 'ozet', width: 36 },
+                { header: 'Durum', key: 'durum', width: 14 },
+                { header: 'Teknisyen Notu', key: 'techNote', width: 30 },
+                { header: 'Resim URLleri', key: 'resimler', width: 50 },
+                { header: 'Fotoğraf GPS', key: 'fotoGps', width: 26 },
+                { header: 'Fotoğraf Adresi (Nominatim)', key: 'fotoAdres', width: 50 },
+                { header: 'Konum GPS', key: 'konumGps', width: 26 },
+                { header: 'Konum Adresi (Nominatim)', key: 'konumAdres', width: 50 },
+                { header: 'Google Maps (Konum)', key: 'googleMaps', width: 50 },
+            ];
+            // Header style
+            ws.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1a5276' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            });
+
+            for (const r of rows as any[]) {
+                const fotoAdres = await getAddress(r.photoCoords?.lat, r.photoCoords?.lng);
+                const konumAdres = await getAddress(r.locationCoords?.lat, r.locationCoords?.lng);
+                const lat = r.locationCoords?.lat || r.photoCoords?.lat;
+                const lng = r.locationCoords?.lng || r.photoCoords?.lng;
+                const googleMapsUrl = lat && lng ? `https://maps.google.com/?q=${lat},${lng}` : '';
+                ws.addRow({
+                    kayitNo: r.incidentId || String(r._id),
+                    tarih: r.createdAt ? new Date(r.createdAt).toLocaleString('tr-TR') : '',
+                    musteri: r.customerName || '',
+                    telefon: r.customerPhone || '',
+                    eposta: r.customerEmail || '',
+                    adres: r.address || '',
+                    sayac: r.meterNo || '',
+                    ozet: r.issueSummary || '',
+                    durum: STATUS_LABELS[r.status] || r.status || '',
+                    techNote: r.techNote || '',
+                    resimler: (r.images || []).join('\n'),
+                    fotoGps: r.photoCoords ? `${r.photoCoords.lat}, ${r.photoCoords.lng}` : '',
+                    fotoAdres,
+                    konumGps: r.locationCoords ? `${r.locationCoords.lat}, ${r.locationCoords.lng}` : '',
+                    konumAdres,
+                    googleMaps: googleMapsUrl,
+                });
+            }
+
+            // Auto-height for data rows
+            ws.eachRow((row, rowNum) => {
+                if (rowNum > 1) row.alignment = { wrapText: true, vertical: 'top' };
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            const filename = encodeURIComponent(`Ariza_Kayitlari_${new Date().toISOString().slice(0,10)}.xlsx`);
+            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
+            await workbook.xlsx.write(res);
+            res.end();
+        } catch (error) {
+            logger.error('Incidents export failed:', error);
+            res.status(500).json({ error: 'Excel export failed' });
+        }
+    });
+
+    router.get('/incidents/:id', authenticate, authorizePermission('canViewIncidents'), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             const dbQuery: any = { $or: [{ incidentId: id }] };
@@ -703,20 +1190,7 @@ export default function (botManager: BotManager) {
             const foundDb = await IncidentModel.findOne(dbQuery).lean() as any;
 
             if (foundDb) {
-                return res.json({
-                    id: foundDb.incidentId,
-                    createdAt: foundDb.createdAt,
-                    customerName: foundDb.customerName,
-                    phone: foundDb.customerPhone,
-                    customerEmail: foundDb.customerEmail || '',
-                    address: foundDb.address,
-                    meterNo: foundDb.meterNo,
-                    issue: foundDb.issueSummary,
-                    sourceNumber: foundDb.sourcePhoneNumber,
-                    status: foundDb.status,
-                    statusHistory: foundDb.statusHistory || [],
-                    updatedAt: foundDb.updatedAt
-                });
+                return res.json(serializeIncident(foundDb));
             }
 
             const incidents = readIncidentCsvRecords();
@@ -731,20 +1205,57 @@ export default function (botManager: BotManager) {
         }
     });
 
-    router.patch('/incidents/:id/status', authenticate, authorizeAdmin, async (req, res) => {
+    router.patch('/incidents/:id/status', authenticate, authorizePermission('canUpdateIncidents'), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
-            const status = String(req.body?.status || '').trim().toUpperCase();
-            const note = String(req.body?.note || '').trim();
+            const requestedStatus = String(req.body?.status || '').trim().toUpperCase();
+            const note = String(req.body?.note ?? req.body?.techNote ?? '').trim();
 
             const allowed = ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI'];
+            const dbQuery: any = { $or: [{ incidentId: id }] };
+            if (/^[a-f\d]{24}$/i.test(id)) {
+                dbQuery.$or.push({ _id: id });
+            }
+
+            let incident = await IncidentModel.findOne(dbQuery);
+            if (!incident) {
+                // Backward compatibility: promote legacy CSV-only incident into DB on first update.
+                const legacy = readIncidentCsvRecords().find((r: any) => r.id === id || r.fileName === id);
+                if (!legacy) {
+                    return res.status(404).json({ error: 'Incident not found in database' });
+                }
+                const createdAt = legacy.createdAt ? new Date(legacy.createdAt) : new Date();
+                incident = await IncidentModel.create({
+                    incidentId: String(legacy.id || id),
+                    customerName: String(legacy.customerName || 'Bilinmiyor'),
+                    customerPhone: String(legacy.phone || ''),
+                    customerEmail: '',
+                    address: String(legacy.address || ''),
+                    meterNo: String(legacy.meterNo || ''),
+                    issueSummary: String(legacy.issue || 'Elektrik arizasi bildirimi'),
+                    sourcePhoneNumber: String(legacy.sourceNumber || ''),
+                    status: 'ALINDI',
+                    statusHistory: [{
+                        status: 'ALINDI',
+                        note: 'Legacy CSV kaydindan aktarildi',
+                        at: createdAt
+                    }],
+                    notifications: {
+                        teamWhatsAppSent: false,
+                        teamEmailSent: false,
+                        customerEmailSent: false,
+                        lastError: ''
+                    },
+                    createdAt
+                });
+            }
+
+            const status = requestedStatus || incident.status || 'ALINDI';
             if (!allowed.includes(status)) {
                 return res.status(400).json({ error: 'Invalid status value' });
             }
-
-            const incident = await IncidentModel.findOne({ incidentId: id });
-            if (!incident) {
-                return res.status(404).json({ error: 'Incident not found in database' });
+            if (!requestedStatus && !note) {
+                return res.status(400).json({ error: 'Status veya not gerekli' });
             }
 
             incident.status = status as any;
@@ -773,7 +1284,7 @@ export default function (botManager: BotManager) {
             );
 
             const statusText = incidentStatusLabel(status);
-            const updatedAtText = new Date().toLocaleString('tr-TR');
+            const updatedAtText = formatTrDateTime(new Date());
             const noteLine = note ? `Aciklama: ${note}` : '';
             const templateVars = {
                 incidentId: String(incident.incidentId),
@@ -855,15 +1366,20 @@ export default function (botManager: BotManager) {
                 incident.incidentId,
                 { status, note, customerNotified, customerEmailNotified }
             );
+            fireEvent('incident.status.updated', {
+                incidentId: String(incident.incidentId),
+                status: String(status),
+                statusLabel: statusText,
+                note,
+                customerName: String(incident.customerName || ''),
+                customerPhone: String(incident.customerPhone || ''),
+                customerEmail: String(incident.customerEmail || ''),
+                address: String(incident.address || ''),
+                meterNo: String(incident.meterNo || ''),
+                source: 'crm'
+            }).catch(() => {});
 
-            res.json({
-                success: true,
-                id: incident.incidentId,
-                status: incident.status,
-                updatedAt: incident.updatedAt,
-                customerNotified,
-                customerEmailNotified
-            });
+            res.json(serializeIncident(incident.toObject()));
         } catch (error) {
             logger.error('Failed to update incident status:', error);
             res.status(500).json({ error: 'Failed to update incident status' });
@@ -920,34 +1436,56 @@ export default function (botManager: BotManager) {
             res.json(users);
         } catch (error) {
             logger.error('Failed to fetch users:', error);
-            res.status(500).json({ error: 'Failed to fetch users' });
+            res.status(500).json({ error: 'Kullanıcılar alınamadı' });
         }
     });
 
     router.put('/users/:id', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Cannot change your own role' });
-            const { role } = req.body;
-            const user = await UserModel.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
-            if (!user) return res.status(404).json({ error: 'User not found' });
-            await addAuditLog(req.user.userId, req.user.username || '', 'user.role', 'user', req.params.id, { role });
+            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Kendi rolünüzü değiştiremezsiniz' });
+            const { role, permissions, displayName, phone, isActive } = req.body;
+            const update: Record<string, any> = {};
+            if (role !== undefined) {
+                update.role = normalizeUserRole(role);
+            }
+            if (permissions !== undefined) update.permissions = permissions;
+            if (displayName !== undefined) update.displayName = displayName;
+            if (phone !== undefined) update.phone = phone;
+            if (isActive !== undefined) update.isActive = isActive;
+            const user = await UserModel.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'user.update', 'user', req.params.id, update);
             res.json(user);
         } catch (error) {
             logger.error('Failed to update user:', error);
-            res.status(500).json({ error: 'Failed to update user' });
+            res.status(400).json({ error: error.message || 'Kullanıcı güncellenemedi' });
+        }
+    });
+
+    router.put('/users/:id/permissions', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { permissions } = req.body;
+            if (!permissions || typeof permissions !== 'object') return res.status(400).json({ error: 'Geçersiz izin verisi' });
+            const user = await UserModel.findByIdAndUpdate(req.params.id, { permissions }, { new: true }).select('-password');
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'user.permissions', 'user', req.params.id, { permissions });
+            res.json(user);
+        } catch (error) {
+            logger.error('Failed to update permissions:', error);
+            res.status(500).json({ error: 'İzinler güncellenemedi' });
         }
     });
 
     router.delete('/users/:id', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Cannot delete your own account' });
+            if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Kendi hesabınızı silemezsiniz' });
             const user = await UserModel.findByIdAndDelete(req.params.id);
-            if (!user) return res.status(404).json({ error: 'User not found' });
+            if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
             await addAuditLog(req.user.userId, req.user.username || '', 'user.delete', 'user', req.params.id, { username: user.username });
             res.json({ success: true });
         } catch (error) {
             logger.error('Failed to delete user:', error);
-            res.status(500).json({ error: 'Failed to delete user' });
+            res.status(500).json({ error: 'Kullanıcı silinemedi' });
         }
     });
 
@@ -957,7 +1495,11 @@ export default function (botManager: BotManager) {
             const { page = 1, limit = 30, action = '', resource = '' } = req.query;
             const skip = (Number(page) - 1) * Number(limit);
             const query: any = {};
-            if (action) query.action = { $regex: action, $options: 'i' };
+            if (action) {
+                // ReDoS koruması: özel regex karakterlerini escape et
+                const safeAction = String(action).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 50);
+                query.action = { $regex: safeAction, $options: 'i' };
+            }
             if (resource) query.resource = resource;
             const [logs, total] = await Promise.all([
                 AuditLogModel.find(query).sort({ timestamp: -1 }).skip(skip).limit(Number(limit)),
@@ -1074,34 +1616,58 @@ export default function (botManager: BotManager) {
     });
 
     // Inbox
-    router.get('/inbox', authenticate, authorizeAdmin, async (req, res) => {
+    router.get('/inbox', authenticate, authorizePermission('canViewConversations'), async (req, res) => {
         try {
-            const conversations = await MessageModel.aggregate([
+            // Get all distinct phone numbers first to build the full conversation list
+            const allPhones = await MessageModel.distinct('phoneNumber');
+            const resolutionMap = await buildConversationResolutionMap(allPhones, botManager);
+            const botOwnPhone = getBotOwnConversationPhone(botManager);
+
+            // Aggregate per conversation: last message + unread count
+            const aggResult = await MessageModel.aggregate([
                 { $sort: { timestamp: -1 } },
                 {
                     $group: {
                         _id: '$phoneNumber',
                         lastMessage: { $first: '$body' },
                         lastTimestamp: { $first: '$timestamp' },
-                        direction: { $first: '$direction' },
-                        unread: { $sum: { $cond: [{ $and: [{ $eq: ['$direction', 'in'] }, { $eq: ['$read', false] }] }, 1, 0] } }
+                        unread: {
+                            $sum: {
+                                $cond: [{ $and: [{ $eq: ['$direction', 'in'] }, { $eq: ['$read', false] }] }, 1, 0]
+                            }
+                        }
                     }
                 },
-                { $sort: { lastTimestamp: -1 } },
-                { $limit: 100 }
+                { $sort: { lastTimestamp: -1 } }
             ]);
-            // Enrich with contact info
-            const phones = conversations.map((c: any) => c._id);
-            const contacts = await ContactModel.find({ phoneNumber: { $in: phones } }).lean();
-            const contactMap: Record<string, any> = {};
-            contacts.forEach(c => { contactMap[c.phoneNumber] = c; });
-            const result = conversations.map((c: any) => ({
-                phoneNumber: c._id,
-                lastMessage: c.lastMessage,
-                lastTimestamp: c.lastTimestamp,
-                unread: c.unread,
-                contact: contactMap[c._id] || null
-            }));
+
+            const conversationMap = new Map<string, any>();
+            aggResult.forEach((entry: any) => {
+                const canonicalPhone = resolutionMap.get(entry._id) || normalizeConversationPhone(entry._id);
+                if (!canonicalPhone) return;
+                if (botOwnPhone && canonicalPhone === botOwnPhone) return;
+
+                const existing = conversationMap.get(canonicalPhone);
+                if (!existing || new Date(entry.lastTimestamp || 0).getTime() > new Date(existing.lastTimestamp || 0).getTime()) {
+                    conversationMap.set(canonicalPhone, {
+                        phoneNumber: canonicalPhone,
+                        lastMessage: entry.lastMessage,
+                        lastTimestamp: entry.lastTimestamp,
+                        unread: (existing?.unread || 0) + entry.unread,
+                    });
+                } else {
+                    existing.unread += entry.unread;
+                }
+            });
+
+            const canonicalPhones = Array.from(conversationMap.keys());
+            const contacts = await ContactModel.find({}).lean();
+            const result = canonicalPhones
+                .map((phoneNumber) => ({
+                    ...conversationMap.get(phoneNumber),
+                    contact: pickConversationContact(contacts, phoneNumber)
+                }))
+                .sort((a, b) => new Date(b.lastTimestamp || 0).getTime() - new Date(a.lastTimestamp || 0).getTime());
             res.json(result);
         } catch (error) {
             logger.error('Failed to fetch inbox:', error);
@@ -1129,38 +1695,58 @@ export default function (botManager: BotManager) {
         req.on('close', () => messageEmitter.off('message', onMsg));
     });
 
-    router.get('/inbox/:phone', authenticate, authorizeAdmin, async (req, res) => {
+    router.get('/inbox/:phone', authenticate, authorizePermission('canViewConversations'), async (req, res) => {
         try {
             const { phone } = req.params;
-            const messages = await MessageModel.find({ phoneNumber: phone })
+            const canonicalPhone = normalizeConversationPhone(phone);
+            const botOwnPhone = getBotOwnConversationPhone(botManager);
+            if (botOwnPhone && canonicalPhone === botOwnPhone) {
+                return res.json({ messages: [], contact: null });
+            }
+            const rawPhones = await MessageModel.distinct('phoneNumber');
+            const resolutionMap = await buildConversationResolutionMap(rawPhones, botManager);
+            const aliases = rawPhones.filter((rawPhone) => (resolutionMap.get(rawPhone) || normalizeConversationPhone(rawPhone)) === canonicalPhone);
+            const messagePhones = Array.from(new Set([canonicalPhone, ...aliases].filter(Boolean)));
+
+            const messages = await MessageModel.find({ phoneNumber: { $in: messagePhones } })
                 .sort({ timestamp: 1 })
-                .limit(200);
+                .limit(1000)
+                .lean();
             await MessageModel.updateMany(
-                { phoneNumber: phone, direction: 'in', read: false },
+                { phoneNumber: { $in: messagePhones }, direction: 'in', read: false },
                 { $set: { read: true } }
             );
-            const contact = await ContactModel.findOne({ phoneNumber: phone }).lean();
-            res.json({ messages, contact });
+            const contacts = await ContactModel.find({}).lean();
+            const contact = pickConversationContact(contacts, canonicalPhone);
+            res.json({
+                messages: messages.map((message: any) => ({ ...message, phoneNumber: canonicalPhone })),
+                contact
+            });
         } catch (error) {
             logger.error('Failed to fetch conversation:', error);
             res.status(500).json({ error: 'Failed to fetch conversation' });
         }
     });
 
-    router.post('/inbox/:phone/reply', authenticate, authorizeAdmin, async (req, res) => {
+    router.post('/inbox/:phone/reply', authenticate, authorizePermission('canSendMessages'), async (req, res) => {
         try {
             const { phone } = req.params;
             const { message } = req.body;
             if (!message) return res.status(400).json({ error: 'message required' });
 
-            const formattedNumber = phone.includes('@') ? phone : `${phone}@c.us`;
-            await botManager.client.sendMessage(formattedNumber, message);
+            const canonicalPhone = normalizeConversationPhone(phone);
+            const formattedNumber = toWhatsAppChatId(canonicalPhone);
+            if (!formattedNumber) {
+                return res.status(400).json({ error: 'invalid phone number' });
+            }
+            const sentMessage = await botManager.client.sendMessage(formattedNumber, message);
 
             const msgDoc = await MessageModel.create({
-                phoneNumber: phone,
+                phoneNumber: canonicalPhone,
                 body: message,
                 type: 'text',
                 direction: 'out',
+                whatsappMessageId: sentMessage?.id?._serialized,
                 sentVia: 'admin',
                 read: true,
                 timestamp: new Date()
@@ -1349,15 +1935,39 @@ export default function (botManager: BotManager) {
         try {
             const campaign = await CampaignModel.findById(req.params.id).select('name deliveryReport');
             if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
-            const header = 'phone,status,error,sentAt,repliedAt';
-            const rows = campaign.deliveryReport.map(r => [
-                r.phone, r.status, r.error || '', r.sentAt ? new Date(r.sentAt).toISOString() : '',
-                (r as any).repliedAt ? new Date((r as any).repliedAt).toISOString() : ''
-            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-            const csv = [header, ...rows].join('\n');
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', `attachment; filename="delivery-report-${req.params.id}.csv"`);
-            res.send(csv);
+
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'WhatsYpzck CRM';
+            const sheet = workbook.addWorksheet('Teslimat Raporu');
+            sheet.columns = [
+                { header: 'Telefon',         key: 'phone',     width: 20 },
+                { header: 'Durum',           key: 'status',    width: 15 },
+                { header: 'Hata',            key: 'error',     width: 35 },
+                { header: 'Gönderilme',      key: 'sentAt',    width: 22 },
+                { header: 'Yanıtlanma',      key: 'repliedAt', width: 22 },
+            ];
+            const headerRow = sheet.getRow(1);
+            headerRow.eachCell(cell => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+            headerRow.height = 20;
+
+            campaign.deliveryReport.forEach((r: any) => {
+                sheet.addRow({
+                    phone:     r.phone || '',
+                    status:    r.status || '',
+                    error:     r.error || '',
+                    sentAt:    r.sentAt ? new Date(r.sentAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '',
+                    repliedAt: r.repliedAt ? new Date(r.repliedAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '',
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="delivery-report-${req.params.id}.xlsx"`);
+            await workbook.xlsx.write(res);
+            res.end();
         } catch (error) {
             logger.error('Failed to export delivery report:', error);
             res.status(500).json({ error: 'Failed to export delivery report' });
@@ -1470,20 +2080,224 @@ export default function (botManager: BotManager) {
 
     router.post('/scheduled-messages', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { phoneNumber, message, scheduledAt, contactName } = req.body;
-            if (!phoneNumber || !message || !scheduledAt) {
-                return res.status(400).json({ error: 'phoneNumber, message and scheduledAt are required' });
+            const {
+                phoneNumber,
+                message,
+                scheduledAt,
+                contactName,
+                recipientType = 'single',
+                groupId,
+                groupName,
+                recipientPhones = []
+            } = req.body;
+
+            if (!message || !scheduledAt) {
+                return res.status(400).json({ error: 'message and scheduledAt are required' });
             }
+
+            const normalizedSinglePhone = normalizeConversationPhone(phoneNumber || '');
+            const normalizedGroupPhones = Array.from(new Set(
+                (Array.isArray(recipientPhones) ? recipientPhones : [])
+                    .map((value: string) => normalizeConversationPhone(value))
+                    .filter(Boolean)
+            ));
+
+            if (recipientType === 'group') {
+                if (!groupId || !groupName || !normalizedGroupPhones.length) {
+                    return res.status(400).json({ error: 'groupId, groupName and recipientPhones are required for group messages' });
+                }
+            } else if (!normalizedSinglePhone) {
+                return res.status(400).json({ error: 'phoneNumber is required' });
+            }
+
             const doc = await ScheduledMessageModel.create({
-                phoneNumber, message,
+                recipientType,
+                phoneNumber: normalizedSinglePhone,
+                groupId: recipientType === 'group' ? String(groupId) : undefined,
+                groupName: recipientType === 'group' ? String(groupName) : undefined,
+                recipientPhones: recipientType === 'group' ? normalizedGroupPhones : [],
+                recipientCount: recipientType === 'group' ? normalizedGroupPhones.length : 1,
+                message,
                 scheduledAt: new Date(scheduledAt),
                 contactName: contactName || '',
                 createdBy: req.user.userId
             });
-            await addAuditLog(req.user.userId, req.user.username || '', 'scheduled_message.create', 'scheduled_message', String(doc._id), { phoneNumber, scheduledAt });
+            await addAuditLog(req.user.userId, req.user.username || '', 'scheduled_message.create', 'scheduled_message', String(doc._id), {
+                phoneNumber: normalizedSinglePhone,
+                groupId,
+                groupName,
+                scheduledAt,
+                recipientType
+            });
             res.status(201).json(doc);
         } catch (error) {
             res.status(500).json({ error: 'Failed to create scheduled message' });
+        }
+    });
+
+    router.get('/contact-groups', authenticate, authorizeAdmin, async (_req, res) => {
+        try {
+            const groups = await ContactGroupModel.find().sort({ name: 1 }).lean();
+            res.json(groups.map((group) => ({
+                ...group,
+                memberCount: Array.isArray(group.memberPhones) ? group.memberPhones.length : 0
+            })));
+        } catch (error) {
+            logger.error('GET /contact-groups error:', error);
+            res.status(500).json({ error: 'Failed to fetch contact groups' });
+        }
+    });
+
+    router.post('/contact-groups', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const name = String(req.body?.name || '').trim();
+            if (!name) return res.status(400).json({ error: 'Group name is required' });
+
+            const slug = slugifyGroupName(req.body?.slug || name);
+            const addressKeywords = parseGroupList(req.body?.addressKeywords).map((item) => item.toLocaleLowerCase('tr-TR'));
+            const memberPhones = parseGroupList(req.body?.memberPhones).map((item) => normalizeConversationPhone(item)).filter(Boolean);
+            const doc = await ContactGroupModel.create({
+                name,
+                slug,
+                description: String(req.body?.description || '').trim(),
+                addressKeywords,
+                memberPhones: Array.from(new Set(memberPhones)),
+                enabled: req.body?.enabled !== false
+            });
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.create', 'contact_group', String(doc._id), {
+                name,
+                slug,
+                memberCount: memberPhones.length
+            });
+            res.status(201).json(doc);
+        } catch (error: any) {
+            logger.error('POST /contact-groups error:', error);
+            if (error?.code === 11000) return res.status(409).json({ error: 'Bu grup adi veya kisaltmasi zaten kullaniliyor' });
+            res.status(500).json({ error: 'Failed to create contact group' });
+        }
+    });
+
+    router.put('/contact-groups/:id', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const existing = await ContactGroupModel.findById(req.params.id);
+            if (!existing) return res.status(404).json({ error: 'Group not found' });
+
+            const name = String(req.body?.name || existing.name).trim();
+            const slug = slugifyGroupName(req.body?.slug || name);
+            existing.name = name;
+            existing.slug = slug;
+            existing.description = String(req.body?.description ?? existing.description ?? '').trim();
+            existing.addressKeywords = parseGroupList(req.body?.addressKeywords ?? existing.addressKeywords)
+                .map((item) => item.toLocaleLowerCase('tr-TR'));
+            existing.memberPhones = Array.from(new Set(
+                parseGroupList(req.body?.memberPhones ?? existing.memberPhones)
+                    .map((item) => normalizeConversationPhone(item))
+                    .filter(Boolean)
+            ));
+            existing.enabled = req.body?.enabled !== undefined ? Boolean(req.body.enabled) : existing.enabled;
+            await existing.save();
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.update', 'contact_group', String(existing._id), {
+                name: existing.name,
+                slug: existing.slug,
+                memberCount: existing.memberPhones.length
+            });
+            res.json(existing);
+        } catch (error: any) {
+            logger.error('PUT /contact-groups/:id error:', error);
+            if (error?.code === 11000) return res.status(409).json({ error: 'Bu grup adi veya kisaltmasi zaten kullaniliyor' });
+            res.status(500).json({ error: 'Failed to update contact group' });
+        }
+    });
+
+    router.delete('/contact-groups/:id', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const doc = await ContactGroupModel.findByIdAndDelete(req.params.id);
+            if (!doc) return res.status(404).json({ error: 'Group not found' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.delete', 'contact_group', req.params.id, { name: doc.name });
+            res.json({ success: true });
+        } catch (error) {
+            logger.error('DELETE /contact-groups/:id error:', error);
+            res.status(500).json({ error: 'Failed to delete contact group' });
+        }
+    });
+
+    router.post('/contact-groups/:id/send-message', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const message = String(req.body?.message || '').trim();
+            if (!message) return res.status(400).json({ error: 'Message is required' });
+
+            const group = await ContactGroupModel.findById(req.params.id);
+            if (!group) return res.status(404).json({ error: 'Group not found' });
+
+            const recipients = Array.from(new Set((group.memberPhones || []).map((item) => normalizeConversationPhone(item)).filter(Boolean)));
+            if (!recipients.length) {
+                return res.status(400).json({ error: 'Group has no members yet' });
+            }
+
+            let sentCount = 0;
+            let failedCount = 0;
+            for (const phone of recipients) {
+                try {
+                    const sentMessage = await botManager.client.sendMessage(toWhatsAppChatId(phone) as string, message);
+                    await persistOutboundAdminMessage(phone, message, sentMessage);
+                    sentCount++;
+                } catch (error) {
+                    failedCount++;
+                    logger.error(`Failed to send group message to ${phone}:`, error);
+                }
+            }
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.send_message', 'contact_group', req.params.id, {
+                name: group.name,
+                sentCount,
+                failedCount
+            });
+
+            res.json({ success: true, sentCount, failedCount, groupName: group.name });
+        } catch (error) {
+            logger.error('POST /contact-groups/:id/send-message error:', error);
+            res.status(500).json({ error: 'Failed to send group message' });
+        }
+    });
+
+    router.post('/contact-groups/:id/schedule-message', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const message = String(req.body?.message || '').trim();
+            const scheduledAt = req.body?.scheduledAt;
+            if (!message || !scheduledAt) {
+                return res.status(400).json({ error: 'Message and scheduledAt are required' });
+            }
+
+            const group = await ContactGroupModel.findById(req.params.id);
+            if (!group) return res.status(404).json({ error: 'Group not found' });
+
+            const recipients = Array.from(new Set((group.memberPhones || []).map((item) => normalizeConversationPhone(item)).filter(Boolean)));
+            if (!recipients.length) {
+                return res.status(400).json({ error: 'Group has no members yet' });
+            }
+
+            const doc = await ScheduledMessageModel.create({
+                recipientType: 'group',
+                groupId: String(group._id),
+                groupName: group.name,
+                recipientPhones: recipients,
+                recipientCount: recipients.length,
+                message,
+                scheduledAt: new Date(scheduledAt),
+                createdBy: req.user.userId
+            });
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'contact_group.schedule_message', 'contact_group', req.params.id, {
+                groupName: group.name,
+                scheduledAt,
+                recipientCount: recipients.length
+            });
+            res.status(201).json(doc);
+        } catch (error) {
+            logger.error('POST /contact-groups/:id/schedule-message error:', error);
+            res.status(500).json({ error: 'Failed to schedule group message' });
         }
     });
 
@@ -1506,29 +2320,35 @@ export default function (botManager: BotManager) {
             const q = (req.query.q as string || '').trim();
             const phone = (req.query.phone as string || '').trim();
             const filter: any = {};
-            if (phone) filter.phoneNumber = { $regex: phone, $options: 'i' };
             if (q) filter.body = { $regex: q, $options: 'i' };
 
             const messages = await MessageModel.find(filter)
                 .sort({ timestamp: -1 })
-                .limit(200)
+                .limit(400)
                 .lean();
 
-            // Group by phoneNumber for conversation threads
+            const resolutionMap = await buildConversationResolutionMap(messages.map((message: any) => message.phoneNumber), botManager);
+            const normalizedPhoneSearch = normalizeConversationPhone(phone);
+            const botOwnPhone = getBotOwnConversationPhone(botManager);
+
             const threadMap: Record<string, any[]> = {};
-            messages.forEach(m => {
-                if (!threadMap[m.phoneNumber]) threadMap[m.phoneNumber] = [];
-                threadMap[m.phoneNumber].push(m);
+            messages.forEach((message: any) => {
+                const canonicalPhone = resolutionMap.get(message.phoneNumber) || normalizeConversationPhone(message.phoneNumber);
+                if (!canonicalPhone) return;
+                if (botOwnPhone && canonicalPhone === botOwnPhone) return;
+                if (phone && canonicalPhone !== normalizedPhoneSearch && !canonicalPhone.includes(normalizedPhoneSearch)) {
+                    return;
+                }
+                if (!threadMap[canonicalPhone]) threadMap[canonicalPhone] = [];
+                threadMap[canonicalPhone].push({ ...message, phoneNumber: canonicalPhone });
             });
 
             const phones = Object.keys(threadMap);
-            const contacts = await ContactModel.find({ phoneNumber: { $in: phones } }).lean();
-            const contactMap: Record<string, any> = {};
-            contacts.forEach(c => { contactMap[c.phoneNumber] = c; });
+            const contacts = await ContactModel.find({}).lean();
 
             const threads = phones.map(pn => ({
                 phoneNumber: pn,
-                contact: contactMap[pn] || null,
+                contact: pickConversationContact(contacts, pn),
                 matchCount: threadMap[pn].length,
                 lastMessage: threadMap[pn][0]?.body || '',
                 lastTimestamp: threadMap[pn][0]?.timestamp || null,
@@ -1965,7 +2785,12 @@ ${transcript}`;
     });
 
     // Public: submit message from widget visitor
-    router.post('/widget/chat', async (req, res) => {
+    const widgetChatLimiter = rateLimit({
+        windowMs: 60 * 1000, // 1 dakika
+        max: 10,
+        message: { error: 'Çok fazla mesaj gönderdiniz. Lütfen bekleyin.' },
+    });
+    router.post('/widget/chat', widgetChatLimiter, async (req, res) => {
         try {
             const { widgetId, visitorName, visitorSessionId, message, pageUrl } = req.body;
             if (!widgetId || !message?.trim()) {

@@ -11,7 +11,7 @@ async function loadScoring() {
     renderScoreRules(rules);
     renderLeaderboard(leaderboard);
   } catch {
-    showToast('Failed to load scoring data', 'error');
+    showToast('Puanlama verileri yüklenemedi', 'error');
   }
 }
 
@@ -20,7 +20,7 @@ function renderScoreRules(rules) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (!rules.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-sm text-gray-400">No rules yet. Click "Add Rule" to create one.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-sm text-gray-400">Henüz kural yok. Oluşturmak için "Kural Ekle"ye tıklayın.</td></tr>`;
     return;
   }
   rules.forEach(r => {
@@ -55,9 +55,9 @@ window.saveScoreRule = async function (id, points, enabled) {
     if (points !== null) update.points = Number(points);
     if (enabled !== null) update.enabled = enabled;
     await apiFetch(`/crm/scoring/rules/${id}`, 'PUT', update);
-    showToast('Rule saved', 'success');
+    showToast('Kural kaydedildi', 'success');
   } catch {
-    showToast('Failed to save rule', 'error');
+    showToast('Kural kaydedilemedi', 'error');
   }
 };
 
@@ -66,25 +66,25 @@ window.addScoreRule = async function () {
   const actions = ['first_interaction', 'message_received', 'command_used', 'campaign_reply'];
   const usedActions = AS.scoreRules.map(r => r.action);
   const available = actions.filter(a => !usedActions.includes(a));
-  if (!available.length) { showToast('All actions already have rules', 'info'); return; }
+  if (!available.length) { showToast('Tüm eylemler için zaten kurallar var', 'info'); return; }
   const action = available[0];
   try {
     await apiFetch('/crm/scoring/rules', 'POST', { action, label: action.replace(/_/g, ' '), points: 1, enabled: true });
-    showToast('Rule created', 'success');
+    showToast('Kural oluşturuldu', 'success');
     loadScoring();
   } catch {
-    showToast('Failed to create rule', 'error');
+    showToast('Kural oluşturulamadı', 'error');
   }
 };
 
 window.deleteScoreRule = async function (id) {
-  if (!confirm('Delete this scoring rule?')) return;
+  if (!confirm('Bu puanlama kuralı silinsin mi?')) return;
   try {
     await apiFetch(`/crm/scoring/rules/${id}`, 'DELETE');
-    showToast('Rule deleted', 'success');
+    showToast('Kural silindi', 'success');
     loadScoring();
   } catch {
-    showToast('Failed to delete rule', 'error');
+    showToast('Kural silinemedi', 'error');
   }
 };
 
@@ -93,7 +93,7 @@ function renderLeaderboard(contacts) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (!contacts.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-400">No contacts scored yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-400">Henüz puanlanan kişi yok</td></tr>`;
     return;
   }
   contacts.forEach((c, i) => {

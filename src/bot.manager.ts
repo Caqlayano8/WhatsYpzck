@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Author: Ç.Kurtoğlu
  * Description: Bot manager - WhatsApp mesaj yönetimi ve komut işleme
  */
@@ -27,6 +27,9 @@ import { FlowSessionModel } from "./crm/models/flow-session.model";
 import { ollamaChat } from "./utils/ai/ollama.util";
 import { getInternetContext, shouldUseInternetLookup } from "./utils/ai/internet-search.util";
 import { getRelevantMemoryContext, saveInteractionMemory } from "./utils/ai/interaction-memory.util";
+import { formatTrDateTime, formatTrTime, getTrNow, TR_TIME_ZONE } from "./utils/system/datetime.util";
+import { normalizeConversationPhone } from "./utils/whatsapp/conversation-phone.util";
+import { ContactGroupModel } from "./crm/models/contact-group.model";
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
@@ -52,15 +55,27 @@ export class BotManager {
         authenticated: false
     };
     private userI18nCache = new Map<string, UserI18n>();
+    private kvkkAcceptedPhones = new Map<string, boolean>();
     private aiConversationState = new Map<string, {
         active: boolean;
         history: string[];
         infoProvided: boolean;
         dispatchDone: boolean;
+        kvkkAccepted?: boolean;
+        menuStep?: 'waiting';
+        faultCategoryStep?: 'waiting';
+        locationCoords?: { lat: number; lng: number } | null;
+        pendingPhotoUrls?: string[];
         incidentFlow?: {
             active: boolean;
-            awaiting: "name" | "phone" | "address" | "meter" | "email" | "confirm";
+            awaiting: "issue" | "name" | "phone" | "address" | "askPhoto" | "photo" | "askLocation" | "location" | "meter" | "email" | "confirm" | "correctionField";
+            correctingSingleField?: boolean;
+            photoCoords?: { lat: number; lng: number } | null;
+            locationCoords?: { lat: number; lng: number } | null;
+            photoUrls?: string[];
+            requestCategory?: "distribution" | "billing";
             data: {
+                issueDescription: string;
                 customerName: string;
                 customerPhone: string;
                 address: string;
@@ -87,6 +102,8 @@ export class BotManager {
     private readonly maxAiQueueSize = Math.max(1, Number(process.env.AI_MAX_QUEUE_SIZE || 30));
     private readonly aiHybridEnabled = String(process.env.AI_HYBRID_ENABLED || "true").toLowerCase() !== "false";
     private readonly aiHybridTriggerInflight = Math.max(1, Number(process.env.AI_HYBRID_TRIGGER_INFLIGHT || 3));
+    // Temporarily stores saved image URLs between the persist block and processMessageContent per phone
+    private pendingMediaUrls = new Map<string, string>();
     private readonly aiHybridTriggerQueue = Math.max(0, Number(process.env.AI_HYBRID_TRIGGER_QUEUE || 1));
     private aiReplyCache = new Map<string, { reply: string; expiresAt: number }>();
     private readonly aiReplyCacheTtlMs = Math.max(0, Number(process.env.AI_REPLY_CACHE_TTL_MS || 45000));
@@ -373,24 +390,128 @@ export class BotManager {
     }
 
     private isPositiveConfirmation(value: string): boolean {
-        const t = String(value || "").trim().toLowerCase();
-        return ["evet", "e", "onay", "onayliyorum", "dogru", "doğru", "tamam"].includes(t);
+        const t = String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ö/g, "o")
+            .replace(/ş/g, "s")
+            .replace(/ç/g, "c");
+
+        return /^(evet|e|onay|onayliyorum|dogru|dogrudur|tamam|tamamdir|olur)(\b|$)/.test(t);
     }
 
-    private buildIncidentSummaryText(data: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): string {
+    private isNegativeConfirmation(value: string): boolean {
+        const t = String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ö/g, "o")
+            .replace(/ş/g, "s")
+            .replace(/ç/g, "c");
+
+        return /^(hayir|hayi|hayr|h|yanlis|degil|duzelt|duzeltelim|tekrar)(\b|$)/.test(t);
+    }
+
+    private parseIncidentCorrectionField(value: string): "issue" | "name" | "phone" | "address" | "meter" | "email" | null {
+        const t = String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ö/g, "o")
+            .replace(/ş/g, "s")
+            .replace(/ç/g, "c");
+
+        if (/\bariza\b|\bsorun\b|\btalep\b|\baciklama\b/.test(t)) return "issue";
+        if (/\badres\b|\bmahalle\b|\bsokak\b|\bcadde\b/.test(t)) return "address";
+        if (/\btelefon\b|\bnumara\b|\bgsm\b/.test(t)) return "phone";
+        if (/\btesisat\b|\bsayac\b|\babone\b/.test(t)) return "meter";
+        if (/\be-?posta\b|\bmail\b/.test(t)) return "email";
+        if (/\bad soyad\b|\bisim\b|\bsoyad\b/.test(t)) return "name";
+        return null;
+    }
+
+    private async promptIncidentCorrectionField(
+        message: Message,
+        flow: {
+            awaiting: "issue" | "name" | "phone" | "address" | "askPhoto" | "photo" | "askLocation" | "location" | "meter" | "email" | "confirm" | "correctionField";
+            correctingSingleField?: boolean;
+            data: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string };
+        },
+        correctionField: "issue" | "name" | "phone" | "address" | "meter" | "email"
+    ): Promise<void> {
+        logger.info(`Incident correction field selected: ${correctionField}`);
+        flow.awaiting = correctionField;
+        flow.correctingSingleField = true;
+
+        if (correctionField === "issue") {
+            flow.data.issueDescription = "Bilinmiyor";
+            await this.safeReply(message, "Ariza detayini tekrar kisa bir sekilde paylasir misiniz?");
+            return;
+        }
+        if (correctionField === "name") {
+            flow.data.customerName = "Bilinmiyor";
+            await this.safeReply(message, "Lutfen dogru ad soyad bilginizi yazin.");
+            return;
+        }
+        if (correctionField === "phone") {
+            flow.data.customerPhone = "Bilinmiyor";
+            await this.safeReply(message, "Lutfen dogru telefon numaranizi yazin. Ornek: 05XXXXXXXXX");
+            return;
+        }
+        if (correctionField === "address") {
+            flow.data.address = "Bilinmiyor";
+            await this.safeReply(message, "Lutfen dogru acik adresinizi yazin.");
+            return;
+        }
+        if (correctionField === "meter") {
+            flow.data.meterNo = "Bilinmiyor";
+            await this.safeReply(message, "Lutfen dogru tesisat no veya sayac no veya abone no bilginizi yazin.");
+            return;
+        }
+
+        flow.data.customerEmail = "Bilinmiyor";
+        await this.safeReply(message, "Lutfen dogru e-posta adresinizi yazin. Ornek: ad.soyad@example.com");
+    }
+
+    private buildPhotoConsentPrompt(): string {
+        return "Arizaniza ait bir fotograf eklemek ister misiniz? Lutfen 'evet' veya 'hayir' yazin.";
+    }
+
+    private buildPhotoUploadPrompt(): string {
+        return "Lutfen fotografi yukleyin veya kameradan cekip gonderin.";
+    }
+
+    private buildLocationConsentPrompt(): string {
+        return "Konum eklemek ister misiniz? Lutfen 'evet' veya 'hayir' yazin.";
+    }
+
+    private buildLocationSharePrompt(): string {
+        return "Lutfen WhatsApp konum paylasma ozelligi ile konumunuzu gonderin.";
+    }
+
+    private buildIncidentSummaryText(data: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): string {
         return [
             "Bilgileri toplu olarak teyit eder misiniz?",
+            `Ariza: ${data.issueDescription}`,
             `Ad Soyad: ${data.customerName}`,
             `Telefon: ${data.customerPhone}`,
             `Adres: ${data.address}`,
             `Tesisat/Sayac/Abone No: ${data.meterNo}`,
             `E-Posta: ${data.customerEmail}`,
             "Bilgiler dogruysa lutfen sadece 'evet' yazin.",
-            "Yanlis bilgi varsa duzeltmeyi yazarak gonderebilirsiniz."
+            "Yanlis bilgi varsa lutfen once 'hayir' yazin; sonra sadece yanlis alani secip guncelleyebilirsiniz."
         ].join("\n");
     }
 
-    private getFirstMissingIncidentField(data: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): "name" | "phone" | "address" | "meter" | "email" | "confirm" {
+    private getFirstMissingIncidentField(data: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): "issue" | "name" | "phone" | "address" | "meter" | "email" | "confirm" {
+        if (!data.issueDescription || data.issueDescription === "Bilinmiyor") return "issue";
         if (!data.customerName || data.customerName === "Bilinmiyor") return "name";
         if (!data.customerPhone || data.customerPhone === "Bilinmiyor") return "phone";
         if (!data.address || data.address === "Bilinmiyor") return "address";
@@ -401,7 +522,7 @@ export class BotManager {
 
     private parseIncidentIntent(text: string): boolean {
         const t = String(text || "").toLowerCase();
-        return /ar[ıi]za|kesinti|elektrik\s+yok|tesisat|sayac|saya[cç]|abone\s*no/.test(t);
+        return /ar[ıi]za|kesinti|elektrik\s+yok|tesisat|sayac|saya[cç]|abone\s*no|fatura|abonelik|tarife|otomatik\s*odeme/.test(t);
     }
 
     private parseIncidentStatusIntent(text: string): boolean {
@@ -414,22 +535,31 @@ export class BotManager {
         return /(saat\s*(kac|kaç|nedir|ne)|kac\s*saat|kaç\s*saat|bugun\s*(tarih|hangi\s*gun)|bugun\s*gunlerden\s*ne|tarih\s*(nedir|ne)|tarih\s*saat|simdi\s*saat\s*kac|şimdi\s*saat\s*kaç)/.test(t);
     }
 
+    private parseIdentityIntent(text: string): boolean {
+        const t = String(text || "").toLowerCase();
+        return /(sen\s*kimsin|kiminle\s*konusuyorum|ad[inı]\s*ne|ad[ıi]n\s*ne|sen\s*nesin|kimsin\b|bot\s*musun)/.test(t);
+    }
+
+    private buildIdentityReply(): string {
+        return [
+            "Ben elektrik ariza musteri hizmetleri icin hizmet veren WhatsYpzck destek asistaniyim.",
+            "",
+            "Size hizli yardimci olabilmem icin iki secenek var:",
+            "1. Ariza kaydi icin yasanan sorunu kisaca yazin.",
+            "2. Durum sorgusu icin 'arizam ne durumda' yazin."
+        ].join("\n");
+    }
+
     private buildCurrentDateTimeReply(): string {
-        const now = new Date();
+        const now = getTrNow();
         const dateText = now.toLocaleDateString("tr-TR", {
-            timeZone: "Europe/Istanbul",
+            timeZone: TR_TIME_ZONE,
             weekday: "long",
             year: "numeric",
             month: "long",
             day: "numeric"
         });
-        const timeText = now.toLocaleTimeString("tr-TR", {
-            timeZone: "Europe/Istanbul",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false
-        });
+        const timeText = formatTrTime(now);
 
         return `Anlik tarih/saat bilgisi (TR): ${dateText}, ${timeText}.`;
     }
@@ -452,6 +582,133 @@ export class BotManager {
             KAPATILDI: "Kapatildi"
         };
         return map[String(status || "").toUpperCase()] || "Bilinmiyor";
+    }
+
+    private async safeReply(message: Message, text: string): Promise<void> {
+        try {
+            if (this.client && typeof this.client.sendMessage === "function" && message?.from) {
+                await this.client.sendMessage(message.from, text);
+                return;
+            }
+        } catch (_) {
+            // fallback below
+        }
+        try {
+            const chat = await message.getChat();
+            if (chat && typeof (chat as any).sendMessage === "function") {
+                await (chat as any).sendMessage(text);
+                return;
+            }
+        } catch (_) {
+            // fallback below
+        }
+        await message.reply(text);
+    }
+
+    private isKvkkAccepted(phoneNumber: string): boolean {
+        return this.kvkkAcceptedPhones.has(phoneNumber) ||
+            !!(this.aiConversationState.get(phoneNumber)?.kvkkAccepted);
+    }
+
+    private isKvkkResponse(text: string): boolean {
+        const normalized = String(text || "")
+            .trim()
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ş/g, "s")
+            .replace(/ö/g, "o")
+            .replace(/ç/g, "c");
+        return /^(kabul ediyorum|kabul|evet|onayliyorum)(\b|$)/.test(normalized);
+    }
+
+    private buildKvkkMessage(): string {
+        return [
+            "Merhaba! 👋",
+            "",
+            "WhatsYpzck Elektrik Arıza Hattı'na hoş geldiniz.",
+            "",
+            "📋 *KİŞİSEL VERİLERİN KORUNMASI HAKKINDA BİLDİRİM*",
+            "",
+            "6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında sizi bilgilendirmek istiyoruz:",
+            "",
+            "• Adınız, soyadınız, telefon numaranız, adresiniz ve arıza bilgileriniz hizmet sunumu amacıyla işlenecektir.",
+            "• Verileriniz üçüncü kişilerle paylaşılmayacaktır.",
+            "• Verilerinize erişim, düzeltme ve silme haklarınız mevcuttur.",
+            "",
+            "Devam etmek için *KABUL EDİYORUM* yazınız."
+        ].join("\n");
+    }
+
+    private buildWelcomeMenuMessage(): string {
+        return [
+            "✅ KVKK onayınız alındı, teşekkürler!",
+            "",
+            "Merhaba! Ben WhatsYpzck Elektrik Arıza Asistanıyım 🔧⚡",
+            "",
+            "Size nasıl yardımcı olabileceğimi seçin:",
+            "",
+            "1️⃣ *Arıza veya sorun bildirmek istiyorum*",
+            "2️⃣ *Mevcut talebimin durumunu öğrenmek istiyorum*",
+            "",
+            "Lütfen *1* veya *2* yazın."
+        ].join("\n");
+    }
+
+    private buildMainMenuMessage(): string {
+        return [
+            "Merhaba! Ben WhatsYpzck Elektrik Arıza Asistanıyım 🔧⚡",
+            "",
+            "Size nasıl yardımcı olabileceğimi seçin:",
+            "",
+            "1️⃣ *Arıza veya sorun bildirmek istiyorum*",
+            "2️⃣ *Mevcut talebimin durumunu öğrenmek istiyorum*",
+            "",
+            "Lütfen *1* veya *2* yazın."
+        ].join("\n");
+    }
+
+    private buildFaultCategoryMessage(): string {
+        return [
+            "Arızanızın türünü belirtir misiniz? 🔍",
+            "",
+            "1️⃣ *Dağıtım Altyapısı Arızası*",
+            "   📌 Mahallede/sokakta elektrik kesintisi",
+            "   📌 Trafo veya direk arızası",
+            "   📌 Hat hasarı, kablo kopması",
+            "   📌 Sayaç bağlantı sorunu",
+            "",
+            "2️⃣ *Fatura / Abonelik İşlemi*",
+            "   📌 Fatura itirazı veya sorunu",
+            "   📌 Tarife değişikliği",
+            "   📌 Abonelik açma/kapatma",
+            "   📌 Otomatik ödeme sorunu",
+            "",
+            "3️⃣ *İç Tesisat / Ev İçi Arıza*",
+            "   📌 Ev içinde elektrik yok (sigorta attı vs.)",
+            "   📌 Priz, anahtar, iç kablo arızası",
+            "   ⚠️ _Bu tür arızalar için elektrikçi gereklidir, dağıtım şirketi müdahale etmez._",
+            "",
+            "Lütfen *1*, *2* veya *3* yazın.",
+            "",
+            "📸 İsterseniz arıza fotoğrafı da paylaşabilirsiniz!",
+            "📍 Konum paylaşımı da kabul edilmektedir."
+        ].join("\n");
+    }
+
+    private async extractPhotoExifCoords(message: Message): Promise<{ lat: number; lng: number } | null> {
+        try {
+            const media = await message.downloadMedia();
+            if (!media?.data) return null;
+            const buffer = Buffer.from(media.data, 'base64');
+            const exifr = await import('exifr');
+            const gps = await (exifr.default || exifr).gps(buffer);
+            if (gps?.latitude && gps?.longitude) {
+                return { lat: gps.latitude, lng: gps.longitude };
+            }
+        } catch (_) { /* non-critical */ }
+        return null;
     }
 
     private async processIncidentStatusFlow(message: Message, aiState: {
@@ -487,38 +744,38 @@ export class BotManager {
         if (!flow) return false;
 
         if (justStarted && flow.awaiting === "name") {
-            await message.reply("Ariza durumunu sorgulayabilmemiz icin lutfen adinizi ve soyadinizi yaziniz.");
+            await this.safeReply(message, "Ariza durumunu sorgulayabilmemiz icin lutfen adinizi ve soyadinizi yaziniz.");
             return true;
         }
 
         if (flow.awaiting === "name") {
             const name = String(text || "").trim();
             if (name.length < 3 || !/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(name)) {
-                await message.reply("Ad soyad bilginizi kontrol ederek tekrar yaziniz. Ornek: Ahmet Yilmaz");
+                await this.safeReply(message, "Ad soyad bilginizi kontrol ederek tekrar yaziniz. Ornek: Ahmet Yilmaz");
                 return true;
             }
             flow.data.customerName = name;
             flow.awaiting = "phone";
-            await message.reply("Tesekkur ederiz. Simdi telefon numaranizi yaziniz. Ornek: 05XXXXXXXXX");
+            await this.safeReply(message, "Tesekkur ederiz. Simdi telefon numaranizi yaziniz. Ornek: 05XXXXXXXXX");
             return true;
         }
 
         if (flow.awaiting === "phone") {
             const normalizedPhone = this.normalizeTurkishPhone(text);
             if (!normalizedPhone) {
-                await message.reply("Telefon numarasi gecersiz görunuyor. Lutfen 05XXXXXXXXX formatinda tekrar yaziniz.");
+                await this.safeReply(message, "Telefon numarasi gecersiz gorunuyor. Lutfen 05XXXXXXXXX formatinda tekrar yaziniz.");
                 return true;
             }
             flow.data.customerPhone = normalizedPhone;
             flow.awaiting = "incidentId";
-            await message.reply("Lutfen ariza kayit numaranizi yaziniz. Ornek: ARZ-1773396737967");
+            await this.safeReply(message, "Lutfen ariza kayit numaranizi yaziniz. Ornek: ARZ-1773396737967");
             return true;
         }
 
         if (flow.awaiting === "incidentId") {
             const incidentId = this.normalizeIncidentId(text);
             if (!incidentId) {
-                await message.reply("Ariza kayit numarasi gecersiz görunuyor. Lutfen ARZ- ile baslayan kayit noyu tekrar yaziniz.");
+                await this.safeReply(message, "Ariza kayit numarasi gecersiz gorunuyor. Lutfen ARZ- ile baslayan kayit noyu tekrar yaziniz.");
                 return true;
             }
             flow.data.incidentId = incidentId;
@@ -533,16 +790,16 @@ export class BotManager {
             flow.active = false;
 
             if (!record) {
-                await message.reply("Belirttiginiz bilgilerle eslesen bir ariza kaydi bulunamadi. Lutfen ad soyad, telefon ve kayit numaranizi kontrol ederek tekrar deneyiniz.");
+                await this.safeReply(message, "Belirttiginiz bilgilerle eslesen bir ariza kaydi bulunamadi. Lutfen ad soyad, telefon ve kayit numaranizi kontrol ederek tekrar deneyiniz.");
                 return true;
             }
 
-            await message.reply([
+            await this.safeReply(message, [
                 "*ARIZA DURUM BILGISI*",
                 `Kayit No: ${record.incidentId}`,
                 `Durum: ${this.incidentStatusText(record.status)}`,
-                `Olusturma Zamani: ${new Date(record.createdAt).toLocaleString('tr-TR')}`,
-                `Son Guncelleme: ${new Date(record.updatedAt).toLocaleString('tr-TR')}`,
+                `Olusturma Zamani: ${formatTrDateTime(record.createdAt)}`,
+                `Son Guncelleme: ${formatTrDateTime(record.updatedAt)}`,
                 `Adres: ${record.address || 'Bilinmiyor'}`,
                 `Tesisat/Sayac No: ${record.meterNo || 'Bilinmiyor'}`
             ].join("\n"));
@@ -552,8 +809,9 @@ export class BotManager {
         return false;
     }
 
-    private mergeIncidentData(base: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }, incoming: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }) {
+    private mergeIncidentData(base: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }, incoming: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }) {
         return {
+            issueDescription: incoming.issueDescription !== "Bilinmiyor" ? incoming.issueDescription : base.issueDescription,
             customerName: incoming.customerName !== "Bilinmiyor" ? incoming.customerName : base.customerName,
             customerPhone: incoming.customerPhone !== "Bilinmiyor" ? incoming.customerPhone : base.customerPhone,
             address: incoming.address !== "Bilinmiyor" ? incoming.address : base.address,
@@ -569,8 +827,13 @@ export class BotManager {
         dispatchDone: boolean;
         incidentFlow?: {
             active: boolean;
-            awaiting: "name" | "phone" | "address" | "meter" | "email" | "confirm";
-            data: { customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string };
+            awaiting: "issue" | "name" | "phone" | "address" | "askPhoto" | "photo" | "askLocation" | "location" | "meter" | "email" | "confirm" | "correctionField";
+            correctingSingleField?: boolean;
+            photoCoords?: { lat: number; lng: number } | null;
+            locationCoords?: { lat: number; lng: number } | null;
+            photoUrls?: string[];
+            requestCategory?: "distribution" | "billing";
+            data: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string };
         };
     }, text: string): Promise<boolean> {
         let justStarted = false;
@@ -583,8 +846,12 @@ export class BotManager {
 
             aiState.incidentFlow = {
                 active: true,
-                awaiting: "name",
+                awaiting: "issue",
+                correctingSingleField: false,
+                locationCoords: (aiState as any).locationCoords || null,
+                photoUrls: Array.isArray((aiState as any).pendingPhotoUrls) ? [ ...(aiState as any).pendingPhotoUrls ] : [],
                 data: {
+                    issueDescription: this.parseIncidentIntent(text) || this.isOutageComplaint(text) ? String(text || "").trim() : "Bilinmiyor",
                     customerName: "Bilinmiyor",
                     customerPhone: "Bilinmiyor",
                     address: "Bilinmiyor",
@@ -592,6 +859,7 @@ export class BotManager {
                     customerEmail: "Bilinmiyor"
                 }
             };
+            (aiState as any).pendingPhotoUrls = [];
             justStarted = true;
         }
 
@@ -601,113 +869,260 @@ export class BotManager {
         }
 
         if (justStarted) {
+            if (flow.awaiting === "issue") {
+                if (flow.data.issueDescription !== "Bilinmiyor") {
+                    flow.awaiting = "name";
+                    await this.safeReply(message, "Kaydinizi olusturuyorum. Ad soyad bilginizi alabilir miyim?");
+                    return true;
+                }
+                await this.safeReply(message, "Yasadiginiz sorunu kisaca tarif edebilir misiniz?");
+                return true;
+            }
             if (flow.awaiting === "confirm") {
-                await message.reply(this.buildIncidentSummaryText(flow.data));
+                await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
                 return true;
             }
             if (flow.awaiting === "name") {
-                await message.reply("Kayit olusturmak icin once adinizi ve soyadinizi yazar misiniz?");
+                await this.safeReply(message, "Kayit olusturmak icin once adinizi ve soyadinizi yazar misiniz?");
                 return true;
             }
             if (flow.awaiting === "phone") {
-                await message.reply("Lutfen telefon numaranizi yazin. Ornek: 05XXXXXXXXX");
+                await this.safeReply(message, "Lutfen telefon numaranizi yazin. Ornek: 05XXXXXXXXX");
                 return true;
             }
             if (flow.awaiting === "address") {
-                await message.reply("Lutfen acik adresinizi yazin.");
+                await this.safeReply(message, "Lutfen acik adresinizi yazin.");
+                return true;
+            }
+            if (flow.awaiting === "askPhoto") {
+                await this.safeReply(message, this.buildPhotoConsentPrompt());
+                return true;
+            }
+            if (flow.awaiting === "photo") {
+                await this.safeReply(message, this.buildPhotoUploadPrompt());
+                return true;
+            }
+            if (flow.awaiting === "askLocation") {
+                await this.safeReply(message, this.buildLocationConsentPrompt());
+                return true;
+            }
+            if (flow.awaiting === "location") {
+                await this.safeReply(message, this.buildLocationSharePrompt());
                 return true;
             }
             if (flow.awaiting === "email") {
-                await message.reply("Lutfen e-posta adresinizi yazin. Ornek: ad.soyad@example.com");
+                await this.safeReply(message, "Lutfen e-posta adresinizi yazin. Ornek: ad.soyad@example.com");
                 return true;
             }
-            await message.reply("Lutfen tesisat no veya sayac no veya abone no bilginizi yazin.");
+            await this.safeReply(message, "Lutfen tesisat no veya sayac no veya abone no bilginizi yazin.");
+            return true;
+        }
+
+        if (flow.awaiting === "issue") {
+            const issueText = String(text || "").trim();
+            if (issueText.length < 4) {
+                await this.safeReply(message, "Yasadiginiz sorunu biraz daha acik tarif edebilir misiniz?");
+                return true;
+            }
+            flow.data.issueDescription = issueText;
+            if (flow.correctingSingleField) {
+                flow.correctingSingleField = false;
+                flow.awaiting = "confirm";
+                await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
+                return true;
+            }
+            flow.awaiting = "name";
+            await this.safeReply(message, "Tesekkur ederim. Ad soyad bilginizi alabilir miyim?");
             return true;
         }
 
         if (flow.awaiting === "confirm") {
             if (this.isPositiveConfirmation(text)) {
-                const dispatched = await this.dispatchIncidentWithParsed(message, phoneNumber, flow.data);
+                const photoCoords = (flow as any).photoCoords || null;
+                const locationCoords = (flow as any).locationCoords || null;
+                const photoUrls: string[] = Array.isArray((flow as any).photoUrls) ? (flow as any).photoUrls : [];
+                const dispatched = await this.dispatchIncidentWithParsed(message, phoneNumber, flow.data, photoCoords, locationCoords, photoUrls);
                 aiState.dispatchDone = dispatched;
                 flow.active = false;
                 aiState.infoProvided = true;
                 if (dispatched) {
-                    await message.reply("Tesekkur ederiz. Kaydiniz olusturuldu ve ilgili numaraya/eposta adresine gonderildi.");
+                    await this.safeReply(message, "Tesekkur ederiz. Kaydiniz olusturuldu ve ilgili numaraya/eposta adresine gonderildi.");
                 } else {
-                    await message.reply("Kaydiniz olusturuldu ancak su an yonlendirme yapilamadi. Sistem ayarlari kontrol edilmelidir.");
+                    await this.safeReply(message, "Kaydiniz olusturuldu ancak su an yonlendirme yapilamadi. Sistem ayarlari kontrol edilmelidir.");
                 }
                 return true;
             }
-            flow.data = {
-                customerName: "Bilinmiyor",
-                customerPhone: "Bilinmiyor",
-                address: "Bilinmiyor",
-                meterNo: "Bilinmiyor",
-                customerEmail: "Bilinmiyor"
-            };
-            flow.awaiting = "name";
-            await message.reply("Tamam, bilgileri bastan alalim. Lutfen adinizi ve soyadinizi yazin.");
+
+            if (this.isNegativeConfirmation(text)) {
+                const correctionField = this.parseIncidentCorrectionField(text);
+                if (correctionField) {
+                    logger.info(`Incident confirmation negative with inline field: ${text} -> ${correctionField}`);
+                    await this.promptIncidentCorrectionField(message, flow, correctionField);
+                    return true;
+                }
+
+                flow.awaiting = "correctionField";
+                flow.correctingSingleField = false;
+                logger.info(`Incident confirmation negative without field: ${text}`);
+                await this.safeReply(message, "Hangi bilgi yanlis? Lutfen sadece birini yazin: ad soyad, telefon, adres, tesisat no, e-posta.");
+                return true;
+            }
+
+            await this.safeReply(message, "Bilgiler dogruysa sadece 'evet' yazin. Duzeltme yapmak isterseniz 'hayir' yazin; ben size hangi alanin yanlis oldugunu sorayim.");
+            return true;
+        }
+
+        if (flow.awaiting === "correctionField") {
+            const correctionField = this.parseIncidentCorrectionField(text);
+            if (!correctionField) {
+                logger.info(`Incident correction field not understood: ${text}`);
+                await this.safeReply(message, "Hangi bilginin yanlis oldugunu anlayamadim. Lutfen su seceneklerden birini yazin: ad soyad, telefon, adres, tesisat no, e-posta.");
+                return true;
+            }
+
+            logger.info(`Incident correction follow-up field: ${text} -> ${correctionField}`);
+            await this.promptIncidentCorrectionField(message, flow, correctionField);
             return true;
         }
 
         if (flow.awaiting === "name") {
             const trimmed = String(text || "").trim();
             if (trimmed.length < 3 || !/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(trimmed)) {
-                await message.reply("Ad soyad bilgisini tekrar yazar misiniz? Ornek: Ahmet Yilmaz");
+                await this.safeReply(message, "Ad soyad bilgisini tekrar yazar misiniz? Ornek: Ahmet Yilmaz");
                 return true;
             }
             flow.data.customerName = trimmed;
+            if (flow.correctingSingleField) {
+                flow.correctingSingleField = false;
+                flow.awaiting = "confirm";
+                await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
+                return true;
+            }
             flow.awaiting = "phone";
-            await message.reply("Tesekkurler. Simdi telefon numaranizi yazin. Ornek: 05XXXXXXXXX");
+            await this.safeReply(message, "Tesekkurler. Simdi telefon numaranizi yazin. Ornek: 05XXXXXXXXX");
             return true;
         }
 
         if (flow.awaiting === "phone") {
             const normalizedPhone = this.normalizeTurkishPhone(text);
             if (!normalizedPhone) {
-                await message.reply("Telefon numarasi gecersiz görunuyor. Lutfen 05XXXXXXXXX formatinda tekrar yazin.");
+                await this.safeReply(message, "Telefon numarasi gecersiz gorunuyor. Lutfen 05XXXXXXXXX formatinda tekrar yazin.");
                 return true;
             }
             flow.data.customerPhone = normalizedPhone;
+            if (flow.correctingSingleField) {
+                flow.correctingSingleField = false;
+                flow.awaiting = "confirm";
+                await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
+                return true;
+            }
             flow.awaiting = "address";
-            await message.reply("Tesekkurler. Simdi acik adresinizi yazin.");
+            await this.safeReply(message, "Tesekkurler. Simdi acik adresinizi yazin.");
             return true;
         }
 
         if (flow.awaiting === "address") {
             const addr = String(text || "").trim();
             if (addr.length < 8) {
-                await message.reply("Adres bilgisini daha acik yazmanizi rica ederiz.");
+                await this.safeReply(message, "Adres bilgisini daha acik yazmanizi rica ederiz.");
                 return true;
             }
             flow.data.address = addr;
-            flow.awaiting = "meter";
-            await message.reply("Tesekkurler. Simdi tesisat no veya sayac no veya abone no bilginizi yazin.");
+            if (flow.correctingSingleField) {
+                flow.correctingSingleField = false;
+                flow.awaiting = "confirm";
+                await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
+                return true;
+            }
+            flow.awaiting = "askPhoto";
+            await this.safeReply(message, this.buildPhotoConsentPrompt());
+            return true;
+        }
+
+        if (flow.awaiting === "askPhoto") {
+            if (this.isPositiveConfirmation(text)) {
+                flow.awaiting = "photo";
+                await this.safeReply(message, this.buildPhotoUploadPrompt());
+                return true;
+            }
+            if (this.isNegativeConfirmation(text)) {
+                flow.awaiting = "askLocation";
+                await this.safeReply(message, this.buildLocationConsentPrompt());
+                return true;
+            }
+            await this.safeReply(message, "Fotograf eklemek isteyip istemediginizi anlayamadim. Lutfen sadece 'evet' veya 'hayir' yazin.");
+            return true;
+        }
+
+        if (flow.awaiting === "photo") {
+            if (this.isNegativeConfirmation(text)) {
+                flow.awaiting = "askLocation";
+                await this.safeReply(message, this.buildLocationConsentPrompt());
+                return true;
+            }
+            await this.safeReply(message, this.buildPhotoUploadPrompt());
+            return true;
+        }
+
+        if (flow.awaiting === "askLocation") {
+            if (this.isPositiveConfirmation(text)) {
+                flow.awaiting = "location";
+                await this.safeReply(message, this.buildLocationSharePrompt());
+                return true;
+            }
+            if (this.isNegativeConfirmation(text)) {
+                flow.awaiting = "meter";
+                await this.safeReply(message, "Tesekkurler. Simdi tesisat no veya sayac no veya abone no bilginizi yazin.");
+                return true;
+            }
+            await this.safeReply(message, "Konum eklemek isteyip istemediginizi anlayamadim. Lutfen sadece 'evet' veya 'hayir' yazin.");
+            return true;
+        }
+
+        if (flow.awaiting === "location") {
+            if (this.isNegativeConfirmation(text)) {
+                flow.awaiting = "meter";
+                await this.safeReply(message, "Konum adimini atladim. Simdi tesisat no veya sayac no veya abone no bilginizi yazin.");
+                return true;
+            }
+            await this.safeReply(message, this.buildLocationSharePrompt());
             return true;
         }
 
         if (flow.awaiting === "meter") {
             const meter = this.sanitizeMeterNo(text);
             if (!this.isValidMeterNo(meter)) {
-                await message.reply("Tesisat/Sayac/Abone no bilgisini kontrol edip tekrar yazar misiniz?");
+                await this.safeReply(message, "Tesisat/Sayac/Abone no bilgisini kontrol edip tekrar yazar misiniz?");
                 return true;
             }
             flow.data.meterNo = meter;
+            if (flow.correctingSingleField) {
+                flow.correctingSingleField = false;
+                flow.awaiting = "confirm";
+                await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
+                return true;
+            }
             flow.awaiting = "email";
-            await message.reply("Tesekkurler. Simdi e-posta adresinizi yazin. Ornek: ad.soyad@example.com");
+            await this.safeReply(message, "Tesekkurler. Simdi e-posta adresinizi yazin. Ornek: ad.soyad@example.com");
             return true;
         }
 
         if (flow.awaiting === "email") {
             const email = String(text || "").trim().toLowerCase();
             if (!this.isValidEmail(email)) {
-                await message.reply("E-posta adresi gecersiz görunuyor. Lutfen gecerli bir e-posta yazin. Ornek: ad.soyad@example.com");
+                await this.safeReply(message, "E-posta adresi gecersiz gorunuyor. Lutfen gecerli bir e-posta yazin. Ornek: ad.soyad@example.com");
                 return true;
             }
             flow.data.customerEmail = email;
+            if (flow.correctingSingleField) {
+                flow.correctingSingleField = false;
+                flow.awaiting = "confirm";
+                await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
+                return true;
+            }
             flow.awaiting = "confirm";
             aiState.infoProvided = true;
-            await message.reply(this.buildIncidentSummaryText(flow.data));
+            await this.safeReply(message, this.buildIncidentSummaryText(flow.data));
             return true;
         }
 
@@ -716,6 +1131,7 @@ export class BotManager {
 
     private parseIncidentData(text: string, fallbackName: string, fallbackPhone: string) {
         const src = String(text || "");
+        const issueDescription = src.trim().length >= 4 ? src.trim() : "Bilinmiyor";
 
         // --- Telefon ---
         const phoneMatch = src.match(/(\+?90\s*)?(\(?0?5\d{2}\)?[\s.-]*)\d{3}[\s.-]*\d{2}[\s.-]*\d{2}|\b0?5\d{9}\b/);
@@ -814,6 +1230,7 @@ export class BotManager {
         const normalizedEmail = emailMatch?.[0]?.trim().toLowerCase() || "";
 
         return {
+            issueDescription,
             customerName: inferredName.trim(),
             customerPhone: this.normalizeTurkishPhone(phoneMatch?.[0] || "") || this.normalizeTurkishPhone(fallbackPhone) || "Bilinmiyor",
             address: address || "Bilinmiyor",
@@ -942,12 +1359,13 @@ export class BotManager {
     }
 
     private async dispatchIncidentWithParsed(message: Message, phoneNumber: string, parsed: {
+        issueDescription: string;
         customerName: string;
         customerPhone: string;
         address: string;
         meterNo: string;
         customerEmail: string;
-    }): Promise<boolean> {
+    }, photoCoords?: { lat: number; lng: number } | null, locationCoords?: { lat: number; lng: number } | null, photoUrls?: string[]): Promise<boolean> {
         const settings = await SettingsModel.findOne().lean() as any;
         const routing = settings?.incidentRouting || {};
         const envWhatsApp = String(process.env.ARIZA_TEAM_WHATSAPP || "").trim();
@@ -968,7 +1386,9 @@ export class BotManager {
 
         const incidentId = `ARZ-${Date.now()}`;
         const createdAt = new Date();
-        const issueSummary = "Elektrik arizasi bildirimi";
+        const issueSummary = parsed.issueDescription || "Elektrik arizasi bildirimi";
+        const canonicalCustomerPhone = normalizeConversationPhone(parsed.customerPhone || phoneNumber);
+        const normalizedAddress = String(parsed.address || '').toLocaleLowerCase('tr-TR');
 
         const incidentDoc = await IncidentModel.create({
             incidentId,
@@ -990,12 +1410,50 @@ export class BotManager {
                 teamEmailSent: false,
                 customerEmailSent: false,
                 lastError: ''
-            }
+            },
+            ...(photoCoords ? { photoCoords } : {}),
+            ...(locationCoords ? { locationCoords } : {}),
+            ...(photoUrls?.length ? { images: photoUrls } : {}),
         });
+        fireEvent('incident.created', {
+            incidentId,
+            customerName: parsed.customerName,
+            customerPhone: parsed.customerPhone,
+            customerEmail: parsed.customerEmail,
+            address: parsed.address,
+            meterNo: parsed.meterNo,
+            status: 'ALINDI',
+            statusLabel: 'Alindi',
+            source: 'whatsapp'
+        }).catch(() => {});
+
+        try {
+            if (canonicalCustomerPhone && normalizedAddress) {
+                const matchingGroups = await ContactGroupModel.find({
+                    enabled: true,
+                    addressKeywords: { $exists: true, $ne: [] }
+                });
+
+                for (const group of matchingGroups) {
+                    const matches = (group.addressKeywords || []).some((keyword) => normalizedAddress.includes(String(keyword || '').toLocaleLowerCase('tr-TR')));
+                    if (!matches) continue;
+
+                    const existingMembers = new Set((group.memberPhones || []).map((value) => normalizeConversationPhone(value)).filter(Boolean));
+                    if (!existingMembers.has(canonicalCustomerPhone)) {
+                        existingMembers.add(canonicalCustomerPhone);
+                        group.memberPhones = Array.from(existingMembers);
+                        await group.save();
+                    }
+                }
+            }
+        } catch (error) {
+            logger.error('Failed to auto-assign incident contact into address-based groups:', error);
+        }
 
         const summaryMessage = [
             "*YENI ARIZA BILDIRIMI*",
             `Kayit No: ${incidentId}`,
+            `Ariza: ${parsed.issueDescription}`,
             `Musteri Ismi: ${parsed.customerName}`,
             `Telefon: ${parsed.customerPhone}`,
             `Adres: ${parsed.address}`,
@@ -1004,7 +1462,10 @@ export class BotManager {
             `Imza: ${AppConfig.instance.getBotAuthor()}`,
             `Talep: ${issueSummary}`,
             `Olusturma Zamani: ${createdAt.toLocaleString('tr-TR')}`
-        ].join("\n");
+        ].join("\n") +
+        (photoCoords ? `\n📍 Fotoğraf GPS: ${photoCoords.lat.toFixed(6)}, ${photoCoords.lng.toFixed(6)}` : "") +
+        (locationCoords ? `\n📍 Konum: ${locationCoords.lat.toFixed(6)}, ${locationCoords.lng.toFixed(6)}` : "") +
+        (photoUrls?.length ? `\n🖼 Resimler (${photoUrls.length} adet):\n${photoUrls.join('\n')}` : "");
 
         const reportsDir = path.join("public", "reports", "incidents");
         if (!fs.existsSync(reportsDir)) {
@@ -1013,7 +1474,7 @@ export class BotManager {
 
         const fileName = `${incidentId}.csv`;
         const filePath = path.join(reportsDir, fileName);
-        const csvHeader = ["KayitNo", "Tarih", "MusteriIsmi", "Telefon", "MusteriEposta", "Adres", "TesisatSayacNo", "Imza", "Talep", "KaynakNumara"].join(",");
+        const csvHeader = ["KayitNo", "Tarih", "MusteriIsmi", "Telefon", "MusteriEposta", "Adres", "TesisatSayacNo", "Imza", "Talep", "KaynakNumara", "ResimURLleri", "FotografGPS", "KonumGPS"].join(",");
         const csvRow = [
             this.csvEscape(incidentId),
             this.csvEscape(createdAt.toISOString()),
@@ -1024,9 +1485,13 @@ export class BotManager {
             this.csvEscape(parsed.meterNo),
             this.csvEscape(AppConfig.instance.getBotAuthor()),
             this.csvEscape(issueSummary),
-            this.csvEscape(phoneNumber)
+            this.csvEscape(phoneNumber),
+            this.csvEscape((photoUrls || []).join('; ')),
+            this.csvEscape(photoCoords ? `${photoCoords.lat.toFixed(6)}, ${photoCoords.lng.toFixed(6)}` : ''),
+            this.csvEscape(locationCoords ? `${locationCoords.lat.toFixed(6)}, ${locationCoords.lng.toFixed(6)}` : '')
         ].join(",");
-        fs.writeFileSync(filePath, `${csvHeader}\n${csvRow}\n`, "utf8");
+        // \uFEFF = UTF-8 BOM — Excel'in Turkce karakterleri dogru okumasi icin gerekli
+        fs.writeFileSync(filePath, `\uFEFF${csvHeader}\n${csvRow}\n`, "utf8");
 
         let sentAny = false;
         let teamWhatsAppSent = false;
@@ -1152,7 +1617,7 @@ export class BotManager {
                 .replace(/\{\{\s*customerEmail\s*\}\}/g, parsed.customerEmail)
                 .replace(/\{\{\s*address\s*\}\}/g, parsed.address)
                 .replace(/\{\{\s*meterNo\s*\}\}/g, parsed.meterNo)
-                .replace(/\{\{\s*createdAt\s*\}\}/g, createdAt.toLocaleString('tr-TR'))
+                .replace(/\{\{\s*createdAt\s*\}\}/g, formatTrDateTime(createdAt))
                 .replace(/\{\{\s*closingLine\s*\}\}/g, closingLine)
                 .replace(/\{\{\s*institutionName\s*\}\}/g, institutionName)
                 .replace(/\{\{\s*signatureName\s*\}\}/g, signatureName)
@@ -1213,7 +1678,7 @@ export class BotManager {
 
     private isOutageComplaint(text: string): boolean {
         const t = String(text || "").toLowerCase();
-        return /elektrik\s+(kesintisi|yok|gitti)|kesinti\s+var|ar[ıi]za\s+var|mahallemde\s+elektrik/.test(t);
+        return /(elektrik.*(kesinti|kesintisi|ar[ıi]za|yok|gitti|gitti))|(kesinti.*(var|mevcut))|(ar[ıi]za.*(var|mevcut))|(mahallemde.*elektrik)|(evimde.*elektrik)|(sokakta.*elektrik)/.test(t);
     }
 
     private buildOutageReply(needsInfo: boolean): string {
@@ -1323,7 +1788,99 @@ export class BotManager {
         this.client.on('auth_failure', this.handleAuthFailure.bind(this));
         this.client.on('qr', this.handleQr.bind(this));
         this.client.on('message', this.handleMessage.bind(this));
+        this.client.on('message_create', this.handleOutgoingMessage.bind(this));
         this.client.on('disconnected', this.handleDisconnect.bind(this));
+    }
+
+    private async handleOutgoingMessage(message: Message) {
+        try {
+            if (!(message as any)?.fromMe || message.isStatus) {
+                return;
+            }
+
+            if (!message) {
+                return;
+            }
+
+            const whatsappMessageId = (message as any)?.id?._serialized;
+            if (whatsappMessageId) {
+                const existing = await MessageModel.findOne({ whatsappMessageId }).lean();
+                if (existing) {
+                    return;
+                }
+            }
+
+            let phoneNumber = "";
+            const rawTo = String((message as any).to || "");
+            const rawFrom = String((message as any).from || "");
+            const chatId = rawTo || rawFrom;
+            if (!phoneNumber) {
+                if (!chatId || /@g\.us$/i.test(chatId)) {
+                    return;
+                }
+
+                if (/@lid$/i.test(chatId) && typeof (this.client as any).getContactLidAndPhone === "function") {
+                    try {
+                        const resolved = await (this.client as any).getContactLidAndPhone([chatId]);
+                        const mappedPhone = resolved?.[0]?.pn;
+                        if (mappedPhone) {
+                            phoneNumber = String(mappedPhone);
+                        }
+                    } catch (_) {
+                        // fallback below
+                    }
+                }
+
+                if (!phoneNumber) {
+                    phoneNumber = chatId.replace(/@(c\.us|lid)$/i, "");
+                }
+            }
+
+            if (!phoneNumber) {
+                try {
+                    if (typeof (message as any).getContact === "function") {
+                        const contact = await (message as any).getContact();
+                        if (contact?.number) {
+                            phoneNumber = String(contact.number);
+                        }
+                    }
+                } catch (_) {
+                    // fallback already tried above
+                }
+            }
+
+            if (!phoneNumber) {
+                return;
+            }
+
+            phoneNumber = normalizeConversationPhone(phoneNumber);
+            if (!phoneNumber) {
+                return;
+            }
+
+            const ownPhone = normalizeConversationPhone(String(this.client?.info?.wid?._serialized || this.client?.info?.wid?.user || ""));
+            if (ownPhone && phoneNumber === ownPhone) {
+                logger.info(`Skipping outgoing inbox persistence for own bot number: ${phoneNumber}`);
+                return;
+            }
+
+            const body = message.body?.trim() || (message.type === MessageTypes.VOICE ? '[Voice message]' : '[Empty message]');
+            const type = message.type === MessageTypes.TEXT ? 'text' : 'other';
+
+            const msgDoc = await MessageModel.create({
+                phoneNumber,
+                body,
+                type,
+                direction: 'out',
+                whatsappMessageId,
+                sentVia: 'whatsapp',
+                read: true,
+                timestamp: new Date()
+            });
+            messageEmitter.emit('message', msgDoc.toObject());
+        } catch (error) {
+            logger.error('Failed to persist outgoing WhatsApp message:', error);
+        }
     }
 
 
@@ -1436,6 +1993,7 @@ export class BotManager {
     private async handleMessage(message: Message) {
         let chat = null;
         let userI18n: UserI18n;
+        let shouldPrioritizeIncidentFlow = false;
 
         if (this.shouldSkipMessage(message)) {
             return;
@@ -1464,13 +2022,97 @@ export class BotManager {
                 return;
             }
 
-            // Persist incoming message for inbox
+            // KVKK consent check
+            const userPhone = user.number;
+            if (!user.isMe && !this.isKvkkAccepted(userPhone)) {
+                const contactDoc = await ContactModel.findOne({ phoneNumber: userPhone }).lean() as any;
+                if (contactDoc?.kvkkAccepted) {
+                    this.kvkkAcceptedPhones.set(userPhone, true);
+                } else {
+                    if (this.isKvkkResponse(content)) {
+                        this.kvkkAcceptedPhones.set(userPhone, true);
+                        await ContactModel.findOneAndUpdate(
+                            { phoneNumber: userPhone },
+                            { $set: { kvkkAccepted: true } },
+                            { upsert: true }
+                        );
+                        const existing = this.aiConversationState.get(userPhone);
+                        this.aiConversationState.set(userPhone, {
+                            active: true,
+                            history: existing?.history || [],
+                            infoProvided: false,
+                            dispatchDone: false,
+                            menuStep: 'waiting',
+                            locationCoords: existing?.locationCoords || null,
+                            pendingPhotoUrls: Array.isArray(existing?.pendingPhotoUrls) ? existing.pendingPhotoUrls : [],
+                        });
+                        await this.safeReply(message, this.buildWelcomeMenuMessage());
+                        return;
+                    } else {
+                        await this.safeReply(message, this.buildKvkkMessage());
+                        return;
+                    }
+                }
+            }
+
+            // Check maintenance mode (save flag into message, reply & stop if active)
+            let _maintenanceModeActive = false;
+            let _maintenanceModeData: { enabled: boolean; message?: string; endsAt?: Date | null } | null = null;
+            if (!user.isMe) {
+                try {
+                    const _mmSettings = await SettingsModel.findOne().select('maintenanceMode').lean() as any;
+                    const _mm = _mmSettings?.maintenanceMode;
+                    if (_mm?.enabled) {
+                        _maintenanceModeActive = true;
+                        _maintenanceModeData = _mm;
+                    }
+                } catch (_) { /* non-critical */ }
+            }
+
+                // Persist incoming message for inbox
             if (!user.isMe) {
                 const inboxBody = content || (message.type === MessageTypes.VOICE ? '[Voice message]' : '[Empty message]');
-                const inboxType = message.type === MessageTypes.TEXT ? 'text' : 'other';
+                const inboxType: 'text' | 'image' | 'other' = message.type === MessageTypes.IMAGE ? 'image' :
+                    (message.type === MessageTypes.TEXT ? 'text' : 'other');
                 const isGroup = chat?.isGroup ?? false;
+                const normalizedContent = String(content || "").trim();
+                const existingAiState = this.aiConversationState.get(user.number);
+                shouldPrioritizeIncidentFlow = !!normalizedContent && (
+                    this.parseIncidentIntent(normalizedContent) ||
+                    this.parseIncidentStatusIntent(normalizedContent) ||
+                    this.isOutageComplaint(normalizedContent) ||
+                    this.hasContactInfo(normalizedContent) ||
+                    Boolean(existingAiState?.incidentFlow?.active) ||
+                    Boolean(existingAiState?.statusFlow?.active) ||
+                    Boolean(existingAiState?.menuStep === 'waiting') ||
+                    Boolean(existingAiState?.faultCategoryStep === 'waiting')
+                );
+                const conversationPhone = normalizeConversationPhone(user.number);
+
+                // Save image to disk if message contains a photo
+                let savedMediaUrl: string | undefined;
+                if (message.type === MessageTypes.IMAGE) {
+                    try {
+                        const media = await message.downloadMedia();
+                        if (media?.data) {
+                            const buffer = Buffer.from(media.data, 'base64');
+                            const ext = (media.mimetype?.split('/')[1]?.split(';')[0] || 'jpg').replace('jpeg', 'jpg');
+                            const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'incident-images', user.number);
+                            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+                            const filename = `${Date.now()}.${ext}`;
+                            const filePath = path.join(uploadDir, filename);
+                            fs.writeFileSync(filePath, buffer);
+                            savedMediaUrl = `/public/uploads/incident-images/${user.number}/${filename}`;
+                            this.pendingMediaUrls.set(user.number, savedMediaUrl);
+                            logger.info(`Fotoğraf kaydedildi: ${filePath}`);
+                        }
+                    } catch (imgErr) {
+                        logger.warn('Fotoğraf kaydedilemedi:', imgErr);
+                    }
+                }
+
                 const msgDoc = await MessageModel.create({
-                    phoneNumber: user.number,
+                    phoneNumber: conversationPhone || user.number,
                     body: inboxBody,
                     type: inboxType,
                     direction: 'in',
@@ -1480,11 +2122,29 @@ export class BotManager {
                     isGroup,
                     groupId: isGroup ? message.from : undefined,
                     senderName: isGroup ? (user.pushname || user.name || user.number) : undefined,
+                    receivedDuringMaintenance: _maintenanceModeActive,
+                    ...(savedMediaUrl ? { mediaUrl: savedMediaUrl } : {}),
                 });
                 messageEmitter.emit('message', msgDoc.toObject());
 
+                // Maintenance mode: reply and stop processing
+                if (_maintenanceModeActive && _maintenanceModeData && !user.isMe) {
+                    const _emergencyPhone = process.env.ARIZA_TEAM_WHATSAPP || '';
+                    let _replyText = '\uD83D\uDD27 *Bak\u0131m Modu*\n\nSistemimiz \u015Fu anda bak\u0131m \u00E7al\u0131\u015Fmas\u0131 nedeniyle ge\u00E7ici olarak hizmet d\u0131\u015F\u0131ndad\u0131r.';
+                    if (_maintenanceModeData.message) _replyText += '\n\n' + _maintenanceModeData.message;
+                    if (_maintenanceModeData.endsAt) {
+                        const _endsAt = new Date(_maintenanceModeData.endsAt);
+                        _replyText += '\n\nTahmini biti\u015F: ' + _endsAt.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+                    }
+                    _replyText += '\n\nMesaj\u0131n\u0131z kay\u0131t alt\u0131na al\u0131nm\u0131\u015Ft\u0131r. Bak\u0131m tamamland\u0131\u011F\u0131nda ekibimiz sizinle ileti\u015Fime ge\u00E7ecektir.';
+                    if (_emergencyPhone) _replyText += '\n\n\u0130vedi durumlar i\u00E7in: ' + _emergencyPhone;
+                    _replyText += '\n\nAnlay\u0131\u015F\u0131n\u0131z i\u00E7in te\u015Fekk\u00FCr ederiz. \uD83D\uDE4F';
+                    await this.safeReply(message, _replyText);
+                    return;
+                }
+
                 // Fire integration event
-                fireEvent('message.received', { phoneNumber: user.number, body: inboxBody }).catch(() => {});
+                fireEvent('message.received', { phoneNumber: conversationPhone || user.number, body: inboxBody }).catch(() => {});
 
                 // Track campaign reply (mark first unacknowledged delivery for this phone)
                 const updated = await CampaignModel.updateOne(
@@ -1499,13 +2159,22 @@ export class BotManager {
                     await applyScore(user.number, 'campaign_reply');
                 }
 
-                // Check auto-reply rules
-                const replied = await this.checkAutoReply(user.number, content, chat);
-                if (replied) return;
+                if (!shouldPrioritizeIncidentFlow) {
+                    // Check auto-reply rules
+                    const replied = await this.checkAutoReply(user.number, content, chat);
+                    if (replied) return;
 
-                // Check active flows
-                const flowHandled = await this.executeFlow(user.number, content, chat);
-                if (flowHandled) return;
+                    // Check active flows
+                    const flowHandled = await this.executeFlow(user.number, content, chat);
+                    if (flowHandled) return;
+                }
+            }
+
+            if (shouldPrioritizeIncidentFlow) {
+                await this.runInPhoneQueue(user.number, async () => {
+                    await this.processMessageContent(message, content, userI18n, chat);
+                });
+                return;
             }
 
             const results = await Promise.allSettled([
@@ -1544,6 +2213,101 @@ export class BotManager {
     }
 
     private async processMessageContent(message: Message, content: string, userI18n: UserI18n, chat: any) {
+        const phoneNumber = message.from.split('@')[0];
+
+        // Handle location messages
+        if ((message as any).type === 'location') {
+            const loc = (message as any).location;
+            if (loc?.latitude != null && loc?.longitude != null) {
+                const aiState = this.aiConversationState.get(phoneNumber) || {
+                    active: true,
+                    history: [],
+                    infoProvided: false,
+                    dispatchDone: false,
+                    menuStep: 'waiting' as const,
+                    pendingPhotoUrls: [],
+                };
+                if (aiState) {
+                    // Always store at aiState level so it's available even before incidentFlow starts
+                    aiState.locationCoords = { lat: loc.latitude, lng: loc.longitude };
+                    if (aiState.incidentFlow?.active) {
+                        aiState.incidentFlow.locationCoords = { lat: loc.latitude, lng: loc.longitude };
+                    }
+                    this.aiConversationState.set(phoneNumber, aiState);
+                }
+                if (aiState?.incidentFlow?.active && aiState.incidentFlow.awaiting === 'location') {
+                    aiState.incidentFlow.awaiting = 'meter';
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    await this.safeReply(message, "Konumunuz iletildi. Tesekkur ederiz. Simdi tesisat no veya sayac no veya abone no bilginizi yazin.");
+                    return;
+                }
+                await this.safeReply(message, `📍 Konum alındı: ${loc.latitude}, ${loc.longitude}. Teşekkürler!`);
+            }
+            return;
+        }
+
+        // Handle image messages - extract EXIF coords and save reference in incident flow
+        if ((message as any).type === 'image') {
+            const mediaUrl = this.pendingMediaUrls.get(phoneNumber);
+            this.pendingMediaUrls.delete(phoneNumber);
+
+            const coords = await this.extractPhotoExifCoords(message);
+            const aiState = this.aiConversationState.get(phoneNumber) || {
+                active: true,
+                history: [],
+                infoProvided: false,
+                dispatchDone: false,
+                menuStep: 'waiting' as const,
+                pendingPhotoUrls: [],
+            };
+            if (aiState?.incidentFlow?.active) {
+                if (coords) {
+                    (aiState.incidentFlow as any).photoCoords = coords;
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    await this.safeReply(message, `📸 Fotoğraf alındı. GPS koordinatları: ${coords.lat}, ${coords.lng}`);
+                } else {
+                    await this.safeReply(message, `📸 Fotoğraf alındı. GPS koordinatı bulunamadı.`);
+                }
+                // Accumulate image URL in the incident flow so it's saved when incident is created
+                if (mediaUrl) {
+                    if (!Array.isArray((aiState.incidentFlow as any).photoUrls)) {
+                        (aiState.incidentFlow as any).photoUrls = [];
+                    }
+                    (aiState.incidentFlow as any).photoUrls.push(mediaUrl);
+                }
+                if (aiState.incidentFlow.awaiting === 'photo') {
+                    aiState.incidentFlow.awaiting = 'askLocation';
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    await this.safeReply(message, "Resmi aldim. Konum eklemek ister misiniz? Lutfen 'evet' veya 'hayir' yazin.");
+                    return;
+                }
+                this.aiConversationState.set(phoneNumber, aiState);
+                return;
+            }
+            if (mediaUrl) {
+                if (!Array.isArray(aiState.pendingPhotoUrls)) {
+                    aiState.pendingPhotoUrls = [];
+                }
+                aiState.pendingPhotoUrls.push(mediaUrl);
+            }
+            if (coords) {
+                aiState.locationCoords = aiState.locationCoords || coords;
+            }
+            this.aiConversationState.set(phoneNumber, aiState);
+            if (aiState.faultCategoryStep === 'waiting') {
+                await this.safeReply(message, 'Fotografi aldim. Simdi ariza turunu secmek icin 1, 2 veya 3 yazabilirsiniz.');
+                return;
+            }
+            if (aiState.menuStep === 'waiting') {
+                await this.safeReply(message, 'Fotografi aldim. Devam etmek icin once 1 veya 2 secenegini yazin.');
+                return;
+            }
+            await this.safeReply(message, coords
+                ? `📸 Fotoğraf alındı. GPS koordinatları kaydedildi: ${coords.lat}, ${coords.lng}`
+                : '📸 Fotoğraf alındı. Arıza kaydına eklemek için devam edebilirsiniz.');
+            return;
+        }
+
         if (message.type === MessageTypes.TEXT) {
             await this.handleTextMessage(message, content, userI18n, chat);
         }
@@ -1896,15 +2660,21 @@ export class BotManager {
             if (chat) await chat.sendStateTyping();
             await commands[command].run(message, args, userI18n);
             if (command === "merhaba") {
+                const existingState = this.aiConversationState.get(phoneNumber);
                 this.aiConversationState.set(phoneNumber, {
                     active: true,
-                    history: [],
+                    history: existingState?.history || [],
                     infoProvided: false,
                     dispatchDone: false,
+                    menuStep: 'waiting',
+                    locationCoords: existingState?.locationCoords || null,
+                    pendingPhotoUrls: Array.isArray(existingState?.pendingPhotoUrls) ? existingState.pendingPhotoUrls : [],
                     incidentFlow: {
                         active: false,
-                        awaiting: "name",
+                        awaiting: "issue",
+                        photoUrls: Array.isArray(existingState?.pendingPhotoUrls) ? [ ...existingState.pendingPhotoUrls ] : [],
                         data: {
+                            issueDescription: "Bilinmiyor",
                             customerName: "Bilinmiyor",
                             customerPhone: "Bilinmiyor",
                             address: "Bilinmiyor",
@@ -1922,6 +2692,7 @@ export class BotManager {
                         }
                     }
                 });
+                await this.safeReply(message, this.buildMainMenuMessage());
             }
             applyScore(phoneNumber, 'command_used').catch(() => {});
             SettingsModel.findOneAndUpdate(
@@ -1937,8 +2708,9 @@ export class BotManager {
                     dispatchDone: false,
                     incidentFlow: {
                         active: false,
-                        awaiting: "name",
+                        awaiting: "issue",
                         data: {
+                            issueDescription: "Bilinmiyor",
                             customerName: "Bilinmiyor",
                             customerPhone: "Bilinmiyor",
                             address: "Bilinmiyor",
@@ -1961,11 +2733,133 @@ export class BotManager {
             if (aiState?.active) {
                 if (chat) await chat.sendStateTyping();
 
+                // Handle main menu selection step
+                if (aiState.menuStep === 'waiting') {
+                    const choice = text.trim();
+                    if (choice === '1') {
+                        aiState.menuStep = undefined;
+                        aiState.faultCategoryStep = 'waiting';
+                        this.aiConversationState.set(phoneNumber, aiState);
+                        await this.safeReply(message, this.buildFaultCategoryMessage());
+                        return;
+                    } else if (choice === '2') {
+                        aiState.menuStep = undefined;
+                        aiState.statusFlow = {
+                            active: true,
+                            awaiting: 'name',
+                            data: { customerName: 'Bilinmiyor', customerPhone: 'Bilinmiyor', incidentId: 'Bilinmiyor' }
+                        };
+                        this.aiConversationState.set(phoneNumber, aiState);
+                        await this.safeReply(message, 'Arıza durumunu sorgulayabilmemiz için lütfen adınızı ve soyadınızı yazınız.');
+                        return;
+                    } else {
+                        await this.safeReply(message, this.buildMainMenuMessage());
+                        return;
+                    }
+                }
+
+                // Handle fault category selection step
+                if (aiState.faultCategoryStep === 'waiting') {
+                    const choice = text.trim();
+                    if (choice === '1') {
+                        aiState.faultCategoryStep = undefined;
+                        const pendingLocation = aiState.locationCoords || null;
+                        aiState.incidentFlow = {
+                            active: true,
+                            awaiting: 'issue',
+                            correctingSingleField: false,
+                            locationCoords: pendingLocation,
+                            data: {
+                                issueDescription: 'Bilinmiyor',
+                                customerName: 'Bilinmiyor',
+                                customerPhone: 'Bilinmiyor',
+                                address: 'Bilinmiyor',
+                                meterNo: 'Bilinmiyor',
+                                customerEmail: 'Bilinmiyor'
+                            }
+                        };
+                        this.aiConversationState.set(phoneNumber, aiState);
+                        await this.safeReply(message, 'Yaşadığınız sorunu kısaca tarif edebilir misiniz?');
+                        return;
+                    } else if (choice === '2') {
+                        aiState.faultCategoryStep = undefined;
+                        const pendingLocation = aiState.locationCoords || null;
+                        aiState.incidentFlow = {
+                            active: true,
+                            awaiting: 'issue',
+                            correctingSingleField: false,
+                            requestCategory: 'billing',
+                            locationCoords: pendingLocation,
+                            data: {
+                                issueDescription: 'Bilinmiyor',
+                                customerName: 'Bilinmiyor',
+                                customerPhone: 'Bilinmiyor',
+                                address: 'Bilinmiyor',
+                                meterNo: 'Bilinmiyor',
+                                customerEmail: 'Bilinmiyor'
+                            }
+                        };
+                        this.aiConversationState.set(phoneNumber, aiState);
+                        await this.safeReply(message, 'Fatura veya abonelik talebinizi kısaca tarif edebilir misiniz?');
+                        return;
+                    } else if (choice === '3') {
+                        aiState.faultCategoryStep = undefined;
+                        aiState.menuStep = 'waiting';
+                        this.aiConversationState.set(phoneNumber, aiState);
+                        await this.safeReply(message, [
+                            'İç tesisat arızaları dağıtım şirketinin sorumluluk alanı dışındadır.',
+                            'Bu tür sorunlar için bir elektrikçi veya tesisatçıdan yardım almanızı öneririz.',
+                            'Başka bir konuda yardımcı olabilir miyim?',
+                            '',
+                            this.buildMainMenuMessage()
+                        ].join('\n'));
+                        return;
+                    } else {
+                        await this.safeReply(message, this.buildFaultCategoryMessage());
+                        return;
+                    }
+                }
+
+                const correctionField = this.parseIncidentCorrectionField(text);
+                const incidentFlow = aiState.incidentFlow;
+                const incidentFlowReadyForCorrection = !!incidentFlow?.active &&
+                    this.getFirstMissingIncidentField(incidentFlow.data) === "confirm";
+                if (incidentFlowReadyForCorrection && correctionField && !this.isPositiveConfirmation(text)) {
+                    logger.info(`Incident correction force-catch: ${text} -> ${correctionField}`);
+                    await this.promptIncidentCorrectionField(message, incidentFlow, correctionField);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    return;
+                }
+                if (incidentFlow?.active && incidentFlow.awaiting === "confirm" && this.isNegativeConfirmation(text) && correctionField) {
+                    logger.info(`Incident correction shortcut at confirm: ${text} -> ${correctionField}`);
+                    await this.promptIncidentCorrectionField(message, incidentFlow, correctionField);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    return;
+                }
+                if (incidentFlow?.active && incidentFlow.awaiting === "correctionField" && correctionField) {
+                    logger.info(`Incident correction shortcut at field-select: ${text} -> ${correctionField}`);
+                    await this.promptIncidentCorrectionField(message, incidentFlow, correctionField);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    return;
+                }
+
                 if (this.parseDateTimeIntent(text)) {
                     const nowReply = this.buildCurrentDateTimeReply();
-                    await message.reply(nowReply);
+                    await this.safeReply(message, nowReply);
                     aiState.history.push(`Kullanici: ${text.slice(0, 180)}`);
                     aiState.history.push(`Temsilci: ${nowReply.slice(0, 220)}`);
+                    if (aiState.history.length > 8) {
+                        aiState.history = aiState.history.slice(-8);
+                    }
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    return;
+                }
+
+                if (this.parseIdentityIntent(text)) {
+                    const identityReply = this.buildIdentityReply();
+                    await this.safeReply(message, identityReply);
+                    aiState.history.push(`Kullanici: ${text.slice(0, 180)}`);
+                    aiState.history.push(`Temsilci: ${identityReply.slice(0, 220)}`);
                     if (aiState.history.length > 8) {
                         aiState.history = aiState.history.slice(-8);
                     }
@@ -1993,119 +2887,28 @@ export class BotManager {
                     logger.error("Ariza bilgi toplama akisi hatasi:", flowErr);
                 }
 
-                if (!aiState.infoProvided && this.hasContactInfo(text)) {
-                    aiState.infoProvided = true;
-                }
-
-                if (aiState.infoProvided && !aiState.dispatchDone) {
-                    try {
-                        const dispatched = await this.dispatchIncident(message, phoneNumber, text, aiState.history);
-                        aiState.dispatchDone = dispatched || aiState.dispatchDone;
-                    } catch (dispatchErr) {
-                        logger.error("Ariza yonlendirme akisi hatasi:", dispatchErr);
-                    }
-                }
-
-                // Deterministic guardrail for outage complaints to avoid nonsensical responses.
                 if (this.isOutageComplaint(text)) {
-                    const stableReply = this.applyEmojiPolicy(
-                        this.normalizeInstitutionalLanguage(this.buildOutageReply(!aiState.infoProvided))
-                    );
-                    await message.reply(stableReply);
-                    saveInteractionMemory(text, stableReply);
-                    aiState.history.push(`Kullanici: ${text.slice(0, 180)}`);
-                    aiState.history.push(`Temsilci: ${stableReply.slice(0, 220)}`);
-                    if (aiState.history.length > 8) {
-                        aiState.history = aiState.history.slice(-8);
-                    }
-                    this.aiConversationState.set(phoneNumber, aiState);
-                    return;
-                }
-
-                const historyText = aiState.history.length
-                    ? `\n\nKonu Geçmişi:\n${aiState.history.join("\n")}`
-                    : "";
-
-                const recentHistoryKey = aiState.history.slice(-4).join("|").slice(-500);
-                const aiCacheKey = `${phoneNumber}|${text.toLowerCase()}|${recentHistoryKey}`;
-                const cachedAiReply = this.getCachedAiReply(aiCacheKey);
-                if (cachedAiReply) {
-                    await message.reply(cachedAiReply);
-                    this.pushAiHistory(aiState, text, cachedAiReply);
-                    this.aiConversationState.set(phoneNumber, aiState);
-                    return;
-                }
-
-                const systemPrompt = [
-                    "Sen Artvin Il Mudurlugu Coruh Edas'in samimi ve yardımsever destek asistanisin.",
-                    "Kendini insanmis gibi hisset; sicak, dogal ve rahat Turkce kullan.",
-                    "Faktuel/cografi bilgi verirken kesinlikle uydurma yapma; emin degilsen sadece 'Bilmiyorum' de.",
-                    "Turkiye, Turkistan, Turkmenistan gibi ulke adlarini asla karistirma.",
-                    "Turkiye'nin baskenti Ankara'dir.",
-                    "'Nasilsin', 'iyi misin', 'gunaydin' gibi gundelik selasmalar geldiginde ictenlikle karsilik ver, iyiyim de, tesekkur eder gibi.",
-                    "Sohbet konusuna gore cevap ver; her seyi elektrik arizasina baglamaya calisma.",
-                    "Elektrik kesintisi, ariza veya resmi talep gelirse o zaman kayit icin bilgileri iste.",
-                    "Cevaplar dogal ve kisa olsun (1-4 cumle), sanki mesajlasan bir insan gibi.",
-                    "Kalip, sema veya sabit format kullanma; her soruya o soruya ozel cevap ver.",
-                    "Bilmedigin konularda 'Bunu bilemiyorum ama ...' diyebilirsin, uydurmak zorunda degilsin.",
-                    "Emoji kullanabilirsin ama abartma."
-                ].join("\n");
-
-                const prompt = [
-                    historyText,
-                    `Kullanici mesaji: ${text}`
-                ].join("\n").trim();
-
-                if (this.shouldUseHybridFallback()) {
-                    const quickReply = this.buildHybridQuickReply(text, aiState.infoProvided);
-                    await message.reply(quickReply);
-                    this.pushAiHistory(aiState, text, quickReply);
-                    this.aiConversationState.set(phoneNumber, aiState);
-
-                    void this.runWithAiConcurrencyLimit(async () => {
-                        const { aiReply, aiReplyBase } = await this.composeAiReply(text, prompt, systemPrompt);
-                        await message.reply(`Detayli yanit:\n${aiReply}`);
-                        this.setCachedAiReply(aiCacheKey, aiReply);
-                        saveInteractionMemory(text, aiReply);
-
-                        const latestState = this.aiConversationState.get(phoneNumber);
-                        if (latestState?.active) {
-                            this.pushAiHistory(latestState, text, aiReplyBase);
-                            this.aiConversationState.set(phoneNumber, latestState);
+                    const stableReply = "Ariza kaydi olusturabilmemiz icin once adinizi ve soyadinizi yazar misiniz?";
+                    aiState.incidentFlow = {
+                        active: true,
+                        awaiting: "issue",
+                        data: {
+                            issueDescription: String(text || "").trim() || "Bilinmiyor",
+                            customerName: "Bilinmiyor",
+                            customerPhone: "Bilinmiyor",
+                            address: "Bilinmiyor",
+                            meterNo: "Bilinmiyor",
+                            customerEmail: "Bilinmiyor"
                         }
-                    }).catch((err) => {
-                        logger.error("Hibrit mod arka plan AI hatasi:", err);
-                    });
-
+                    };
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    await this.safeReply(message, stableReply);
                     return;
                 }
 
-                try {
-                    const { aiReply, aiReplyBase } = await this.runWithAiConcurrencyLimit(async () => this.composeAiReply(text, prompt, systemPrompt));
-
-                    await message.reply(aiReply);
-                    this.setCachedAiReply(aiCacheKey, aiReply);
-                    saveInteractionMemory(text, aiReply);
-
-                    this.pushAiHistory(aiState, text, aiReplyBase);
-                    this.aiConversationState.set(phoneNumber, aiState);
-                } catch (err) {
-                    logger.error("AI sohbet hatasi:", err);
-                    const errText = String(err?.message || "");
-                    if (errText.includes("AI_QUEUE_FULL")) {
-                        await message.reply("Su an yogunluk var, mesajiniz siraya alindi. Lutfen 5-10 saniye sonra tekrar yazin.");
-                        return;
-                    }
-                    const timeoutFallback = aiState.infoProvided
-                        ? "Bilgileri paylastigin icin tesekkur ederim. Kaydini oncelikli sekilde takip edecegim; bu arada istersen ek detaylari da yazabilirsin."
-                        : "Su an gecici bir yogunluk var ama yardimci olmak icin buradayim. Ad soyad, telefon, acik adres ve mumkunse tesisat/sayac no bilgisini paylasirsan hemen kayit surecine gecelim.";
-
-                    if (errText.includes("OLLAMA_TIMEOUT")) {
-                        await message.reply(timeoutFallback);
-                    } else {
-                        await message.reply("Su an teknik bir aksaklik oldu, kusura bakma. Mesajini bir kez daha yazar misin?");
-                    }
-                }
+                aiState.menuStep = 'waiting';
+                this.aiConversationState.set(phoneNumber, aiState);
+                await this.safeReply(message, this.buildMainMenuMessage());
                 return;
             }
         } else if (content.startsWith(this.prefix)) {
@@ -2117,3 +2920,4 @@ export class BotManager {
         }
     }
 }
+
