@@ -1,3 +1,31 @@
+
+    // Aggressive Mode Toggle
+    router.post('/settings/aggressive-mode', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { aggressiveMode: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.aggressiveMode', 'settings', undefined, { enabled });
+            res.json({ success: true, aggressiveMode: settings.aggressiveMode });
+        } catch (error) {
+            logger.error('Failed to update aggressive mode:', error);
+            res.status(500).json({ error: 'Failed to update aggressive mode' });
+        }
+    });
+
+    // Remove Restrictions Toggle
+    router.post('/settings/remove-restrictions', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { restrictionsRemoved: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.restrictionsRemoved', 'settings', undefined, { enabled });
+            res.json({ success: true, restrictionsRemoved: settings.restrictionsRemoved });
+        } catch (error) {
+            logger.error('Failed to update restrictionsRemoved:', error);
+            res.status(500).json({ error: 'Failed to update restrictionsRemoved' });
+        }
+    });
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';

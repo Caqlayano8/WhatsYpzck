@@ -37,6 +37,14 @@ const settingsSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    aggressiveMode: {
+        type: Boolean,
+        default: false
+    },
+    restrictionsRemoved: {
+        type: Boolean,
+        default: false
+    },
     smtp: {
         host:     { type: String, default: '' },
         port:     { type: Number, default: 587 },
