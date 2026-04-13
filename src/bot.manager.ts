@@ -496,6 +496,30 @@ export class BotManager {
         return "Lutfen WhatsApp konum paylasma ozelligi ile konumunuzu gonderin.";
     }
 
+    private async resolveLocationAddress(lat: number, lng: number): Promise<string | null> {
+        try {
+            const response = await axios.get("https://nominatim.openstreetmap.org/reverse", {
+                params: {
+                    format: "jsonv2",
+                    lat,
+                    lon: lng,
+                    zoom: 18,
+                    addressdetails: 1
+                },
+                headers: {
+                    "User-Agent": "WhatsYpzck/2.0"
+                },
+                timeout: 7000
+            });
+
+            const displayName = String(response?.data?.display_name || "").trim();
+            return displayName || null;
+        } catch (error) {
+            logger.warn("Konum adresi cozumlenemedi:", error);
+            return null;
+        }
+    }
+
     private buildIncidentSummaryText(data: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): string {
         return [
             "Bilgileri toplu olarak teyit eder misiniz?",
@@ -2219,6 +2243,12 @@ export class BotManager {
         if ((message as any).type === 'location') {
             const loc = (message as any).location;
             if (loc?.latitude != null && loc?.longitude != null) {
+                const lat = Number(loc.latitude);
+                const lng = Number(loc.longitude);
+                const fallbackAddress = String(loc?.description || loc?.address || "").trim();
+                const resolvedAddress = await this.resolveLocationAddress(lat, lng);
+                const addressText = fallbackAddress || resolvedAddress || "Adres tespit edilemedi";
+
                 const aiState = this.aiConversationState.get(phoneNumber) || {
                     active: true,
                     history: [],
@@ -2229,19 +2259,38 @@ export class BotManager {
                 };
                 if (aiState) {
                     // Always store at aiState level so it's available even before incidentFlow starts
-                    aiState.locationCoords = { lat: loc.latitude, lng: loc.longitude };
+                    aiState.locationCoords = { lat, lng };
                     if (aiState.incidentFlow?.active) {
-                        aiState.incidentFlow.locationCoords = { lat: loc.latitude, lng: loc.longitude };
+                        aiState.incidentFlow.locationCoords = { lat, lng };
+                        if ((!aiState.incidentFlow.data.address || aiState.incidentFlow.data.address === "Bilinmiyor") && addressText !== "Adres tespit edilemedi") {
+                            aiState.incidentFlow.data.address = addressText;
+                        }
                     }
                     this.aiConversationState.set(phoneNumber, aiState);
                 }
                 if (aiState?.incidentFlow?.active && aiState.incidentFlow.awaiting === 'location') {
                     aiState.incidentFlow.awaiting = 'meter';
                     this.aiConversationState.set(phoneNumber, aiState);
-                    await this.safeReply(message, "Konumunuz iletildi. Tesekkur ederiz. Simdi tesisat no veya sayac no veya abone no bilginizi yazin.");
+                    await this.safeReply(
+                        message,
+                        [
+                            "Konumunuz iletildi. Tesekkur ederiz.",
+                            `Adres: ${addressText}`,
+                            `Koordinatlar: ${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+                            "Simdi tesisat no veya sayac no veya abone no bilginizi yazin."
+                        ].join("\n")
+                    );
                     return;
                 }
-                await this.safeReply(message, `📍 Konum alındı: ${loc.latitude}, ${loc.longitude}. Teşekkürler!`);
+                await this.safeReply(
+                    message,
+                    [
+                        "Konum alindi.",
+                        `Adres: ${addressText}`,
+                        `Koordinatlar: ${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+                        "Tesekkurler."
+                    ].join("\n")
+                );
             }
             return;
         }

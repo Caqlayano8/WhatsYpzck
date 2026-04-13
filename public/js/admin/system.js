@@ -1,3 +1,30 @@
+// Agresif Mod ve Kısıtlamalar
+window.toggleAggressiveMode = async function () {
+  try {
+    await apiFetch('/crm/settings/aggressive-mode', 'POST');
+    showToast('Agresif mod değiştirildi', 'success');
+    loadSettings();
+  } catch {
+    showToast('Agresif mod değiştirilemedi', 'error');
+  }
+};
+
+window.removeAllRestrictions = async function () {
+  try {
+    await apiFetch('/crm/settings/remove-restrictions', 'POST');
+    showToast('Tüm kısıtlamalar kaldırıldı', 'success');
+    loadSettings();
+  } catch {
+    showToast('Kısıtlamalar kaldırılamadı', 'error');
+  }
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+  const btnAggressive = document.getElementById('btn-aggressive-mode');
+  if (btnAggressive) btnAggressive.onclick = window.toggleAggressiveMode;
+  const btnRemove = document.getElementById('btn-remove-restrictions');
+  if (btnRemove) btnRemove.onclick = window.removeAllRestrictions;
+});
 // Commands
 
 async function loadCommands() {

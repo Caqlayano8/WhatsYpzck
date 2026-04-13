@@ -1,3 +1,4 @@
+
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -39,6 +40,34 @@ import crypto from 'crypto';
 import ExcelJS from 'exceljs';
 
 export const router = express.Router();
+
+    // Aggressive Mode Toggle
+    router.post('/settings/aggressive-mode', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { aggressiveMode: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.aggressiveMode', 'settings', undefined, { enabled });
+            res.json({ success: true, aggressiveMode: settings.aggressiveMode });
+        } catch (error) {
+            logger.error('Failed to update aggressive mode:', error);
+            res.status(500).json({ error: 'Failed to update aggressive mode' });
+        }
+    });
+
+    // Remove Restrictions Toggle
+    router.post('/settings/remove-restrictions', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { restrictionsRemoved: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.restrictionsRemoved', 'settings', undefined, { enabled });
+            res.json({ success: true, restrictionsRemoved: settings.restrictionsRemoved });
+        } catch (error) {
+            logger.error('Failed to update restrictionsRemoved:', error);
+            res.status(500).json({ error: 'Failed to update restrictionsRemoved' });
+        }
+    });
 
 function parseCsvLine(line: string): string[] {
     const out: string[] = [];
@@ -618,14 +647,15 @@ export default function (botManager: BotManager) {
         }
     });
 
-    const loginLimiter = rateLimit({
-        windowMs: 15 * 60 * 1000, // 15 dakika
-        max: 10, // 15 dakikada en fazla 10 deneme
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: { error: 'Çok fazla giriş denemesi. Lütfen 15 dakika sonra tekrar deneyin.' },
-    });
-    router.post('/auth/login', loginLimiter, async (req, res) => {
+    // Geliştirme için rate limit devre dışı
+    // const loginLimiter = rateLimit({
+    //     windowMs: 15 * 60 * 1000, // 15 dakika
+    //     max: 10, // 15 dakikada en fazla 10 deneme
+    //     standardHeaders: true,
+    //     legacyHeaders: false,
+    //     message: { error: 'Çok fazla giriş denemesi. Lütfen 15 dakika sonra tekrar deneyin.' },
+    // });
+    router.post('/auth/login', async (req, res) => {
         try {
             const { username, password } = req.body;
             const { token, user } = await AuthService.login(username, password);

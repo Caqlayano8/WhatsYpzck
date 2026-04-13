@@ -469,6 +469,10 @@
       </div>
     </div>
     <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+
+
+      <script src="/js/incidents-table.js"></script>
+      <script src="/js/incident-detail-modal.js"></script>
       <table class="w-full text-left" style="min-width:1240px;">
         <thead>
           <tr class="border-b border-gray-100 bg-gray-50">
@@ -485,8 +489,99 @@
             <th class="px-5 py-3 text-xs font-semibold text-gray-500">Durum Islem</th>
           </tr>
         </thead>
-        <tbody id="incidents-table-body"></tbody>
+        <tbody id="incidents-table-body">
+          <!-- Örnek: Satıra tıklanınca detay modalı açılır. Gerçek uygulamada tabloyu JS ile doldururken onclick eklenmeli. -->
+          <!--
+          <tr onclick="openIncidentDetailModal(incidentObj)">
+            ...
+          </tr>
+          -->
+        </tbody>
       </table>
+
+      <!-- Arıza Detay Modalı: Durum Geçmişi ve Medya -->
+      <div id="incident-detail-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="modal-backdrop absolute inset-0" onclick="closeIncidentDetailModal()"></div>
+        <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-7 overflow-y-auto" style="max-height:90vh;">
+          <h2 class="text-lg font-bold text-gray-900 mb-4">Arıza Detayı</h2>
+          <% if (selectedIncident) { %>
+            <div class="mb-4">
+              <div class="text-xs text-gray-500 mb-1">Kayıt No: <%= selectedIncident.incidentId %></div>
+              <div class="text-xs text-gray-500 mb-1">Adres: <%= selectedIncident.address %></div>
+              <div class="text-xs text-gray-500 mb-1">Durum: <%= selectedIncident.statusLabel %></div>
+            </div>
+            <div class="mb-6">
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">Durum Güncellemeleri</h3>
+              <% if (selectedIncident.statusHistory && selectedIncident.statusHistory.length > 0) { %>
+                <ul class="space-y-3">
+                  <% selectedIncident.statusHistory.forEach(function(status) { %>
+                    <li class="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold text-gray-700"><%= status.statusLabel %></span>
+                        <span class="text-xs text-gray-400"><%= status.updatedAt ? new Date(status.updatedAt).toLocaleString('tr-TR') : '' %></span>
+                      </div>
+                      <div class="text-xs text-gray-700 mb-1"><%= status.note %></div>
+                      <% if (status.media && status.media.length > 0) { %>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                          <% status.media.forEach(function(mediaUrl) { %>
+                            <% if (mediaUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) { %>
+                              <img src="<%= mediaUrl %>" alt="Durum Fotoğrafı" class="max-h-32 rounded border border-gray-200">
+                            <% } else if (mediaUrl.match(/\.(mp4)$/i)) { %>
+                              <video src="<%= mediaUrl %>" controls class="max-h-32 rounded border border-gray-200"></video>
+                            <% } %>
+                          <% }); %>
+                        </div>
+                      <% } %>
+                    </li>
+                  <% }); %>
+                </ul>
+              <% } else { %>
+                <div class="text-xs text-gray-400">Durum güncellemesi yok.</div>
+              <% } %>
+            </div>
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">Müşteri / Teknisyen Fotoğrafları</h3>
+              <% if (selectedIncident.images && selectedIncident.images.length > 0) { %>
+                <div class="flex flex-wrap gap-2">
+                  <% selectedIncident.images.forEach(function(imgUrl) { %>
+                    <img src="<%= imgUrl %>" alt="Arıza Fotoğrafı" class="max-h-32 rounded border border-gray-200">
+                  <% }); %>
+                </div>
+              <% } else { %>
+                <div class="text-xs text-gray-400">Yüklenmiş fotoğraf yok.</div>
+              <% } %>
+            </div>
+          <% } else { %>
+            <div class="text-xs text-gray-400">Arıza detayı yüklenemedi.</div>
+          <% } %>
+          <div class="flex justify-end gap-2 mt-6">
+            <button type="button" onclick="closeIncidentDetailModal()" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">Kapat</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal for updating incident status with media upload -->
+      <div id="incident-status-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="modal-backdrop absolute inset-0" onclick="closeIncidentStatusModal()"></div>
+        <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-7">
+          <h2 class="text-lg font-bold text-gray-900 mb-4">Durum Güncelle & Medya Ekle</h2>
+          <form id="incident-status-form" enctype="multipart/form-data">
+            <div class="mb-3">
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Durum Notu</label>
+              <textarea id="incident-status-note" name="note" class="field w-full" rows="3" placeholder="Durum notu yazın..."></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Medya Ekle (Resim veya Video)</label>
+              <input type="file" id="incident-status-media" name="media" accept="image/*,video/*" class="field w-full">
+              <p class="text-xs text-gray-400 mt-1">Desteklenen: jpg, png, gif, webp, mp4. Maksimum boyut: 20MB.</p>
+            </div>
+            <div class="flex justify-end gap-2 mt-4">
+              <button type="button" onclick="closeIncidentStatusModal()" class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">İptal</button>
+              <button type="submit" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">Kaydet</button>
+            </div>
+          </form>
+        </div>
+      </div>
       <div id="incidents-empty" class="text-center py-10 text-gray-400 hidden">
         <i class="fas fa-folder-open text-2xl mb-2"></i>
         <p class="text-sm">Henuz ariza kaydi bulunamadi.</p>
@@ -1401,6 +1496,25 @@
             <div class="toggle-track" id="toggle-autoDownload" onclick="toggleAutoDownload()"><div class="toggle-thumb"></div></div>
             <div><div class="text-sm font-medium text-gray-800">Otomatik İndir</div><div class="text-xs text-gray-500">URL'lerden medyayı otomatik olarak indir</div></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Agresif Mod ve Kısıtlamalar -->
+      <div class="bg-white border border-red-200 rounded-2xl p-5">
+        <div class="flex items-center gap-6 mb-4">
+          <div>
+            <div class="text-sm font-semibold text-red-700">Agresif Mod</div>
+            <div class="text-xs text-gray-500">Tüm kısıtlamaları kaldırır, botu maksimum hızda çalıştırır.</div>
+          </div>
+          <button type="button" id="btn-aggressive-mode" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-colors">Agresif Modu Aç/Kapat</button>
+        </div>
+        <div class="flex items-center gap-6">
+          <div>
+            <div class="text-sm font-semibold text-gray-800">Tüm Kısıtlamaları Kaldır</div>
+            <div class="text-xs text-gray-500">Tüm güvenlik, hız ve limit kısıtlamalarını devre dışı bırakır.</div>
+          </div>
+          <button type="button" id="btn-remove-restrictions" class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors">Kısıtlamaları Kaldır</button>
+        </div>
         </div>
       </div>
 
