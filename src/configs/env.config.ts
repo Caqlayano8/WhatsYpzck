@@ -47,10 +47,6 @@ class EnvConfig {
 
     static validate() {
 
-        if (!fs.existsSync(".env")) {
-            throw new Error(".env file is missing. Please create a .env file at the root directory out of the .env.example file.");
-        }
-
         if (!this.PUPPETEER_EXECUTABLE_PATH) {
             throw new Error("Environment variable PUPPETEER_EXECUTABLE_PATH is missing. Please provide a valid Chrome path.");
         }
