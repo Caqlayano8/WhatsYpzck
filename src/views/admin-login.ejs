@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -114,12 +114,13 @@
       <p class="text-sm text-gray-400 mt-1">Administration Panel · Sign in to continue</p>
     </div>
 
-    <form id="login-form" class="space-y-4" autocomplete="on">
+    <div id="login-step">
+    <form id="login-form" class="space-y-4" autocomplete="off">
       <div>
         <label for="username">Username</label>
         <div class="relative">
           <i class="fas fa-user field-icon"></i>
-          <input type="text" id="username" name="username" required autocomplete="username"
+          <input type="text" id="username" name="username" required autocomplete="off"
             class="field" placeholder="Enter your username">
         </div>
       </div>
@@ -128,7 +129,7 @@
         <label for="password">Password</label>
         <div class="relative">
           <i class="fas fa-lock field-icon"></i>
-          <input type="password" id="password" name="password" required autocomplete="current-password"
+          <input type="password" id="password" name="password" required autocomplete="new-password"
             class="field" placeholder="Enter your password" style="padding-right:40px">
           <button type="button" id="toggle-pw"
             class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
@@ -147,10 +148,42 @@
         </button>
       </div>
     </form>
+    <!-- 2FA Adımı (gizli) -->
+    <div id="twofa-step" class="hidden">
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="width:52px;height:52px;background:#eef2ff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-bottom:10px;">
+          <i class="fas fa-shield-halved" style="color:#4f46e5;font-size:22px;"></i>
+        </div>
+        <h2 style="font-size:1.1rem;font-weight:700;color:#1e293b;margin:0 0 6px;">İki Adımlı Doğrulama</h2>
+        <p id="twofa-hint" style="font-size:0.8rem;color:#64748b;margin:0;line-height:1.5;"></p>
+      </div>
+      <form id="twofa-form" autocomplete="off">
+        <div style="margin-bottom:18px;">
+          <label style="font-size:0.72rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px;">Doğrulama Kodu</label>
+          <input id="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+            placeholder="● ● ● ● ● ●"
+            autocomplete="one-time-code"
+            style="width:100%;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px;font-size:1.5rem;letter-spacing:.5em;text-align:center;color:#1e293b;outline:none;box-sizing:border-box;"
+            onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'" required>
+        </div>
+        <button id="twofa-btn" type="submit" style="width:100%;background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:12px;font-weight:700;font-size:0.92rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">
+          <span id="twofa-btn-text">Doğrula ve Giriş Yap</span>
+          <span id="twofa-spinner" class="hidden" style="width:18px;height:18px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;"></span>
+        </button>
+      </form>
+      <div style="display:flex;justify-content:space-between;margin-top:14px;">
+        <button id="back-to-login" style="background:none;border:none;color:#64748b;font-size:0.8rem;cursor:pointer;padding:0;">
+          <i class="fas fa-arrow-left" style="margin-right:4px;"></i> Geri Dön
+        </button>
+        <button id="resend-otp" style="background:none;border:none;color:#4f46e5;font-size:0.8rem;cursor:pointer;padding:0;font-weight:600;">
+          Kodu tekrar gönder
+        </button>
+      </div>
+    </div>
+  </div>
 
     <div class="divider"></div>
     <p class="text-center text-xs text-gray-300">WhatsYpzck CRM &nbsp;·&nbsp; Secure Administration Access</p>
-    <p class="text-center text-xs text-gray-400 mt-2">Varsayilan Giris: Caqlayan / Caqlayan@o8</p>
   </div>
 
   <script>
@@ -161,13 +194,32 @@
       else { pw.type = 'password'; icon.className = 'fas fa-eye'; }
     });
 
+    let _tempToken = null;
+
+    // ── Hata göster ─────────────────────────────────────────
+    function showError(msg) {
+      const errEl = document.getElementById('error-message');
+      errEl.textContent = msg;
+      errEl.classList.remove('hidden');
+      const card = document.querySelector('.card');
+      card.classList.remove('shake');
+      void card.offsetWidth;
+      card.classList.add('shake');
+    }
+
+    function resetBtn(btnId, textId, spinnerId) {
+      document.getElementById(btnId).disabled = false;
+      document.getElementById(textId).classList.remove('hidden');
+      document.getElementById(spinnerId).classList.add('hidden');
+    }
+
+    // ── Adım 1: Kullanıcı adı + şifre ───────────────────────
     document.getElementById('login-form').addEventListener('submit', async function (e) {
       e.preventDefault();
       const btn     = document.getElementById('submit-btn');
       const btnText = document.getElementById('btn-text');
       const spinner = document.getElementById('btn-spinner');
       const errEl   = document.getElementById('error-message');
-
       btn.disabled = true;
       btnText.classList.add('hidden');
       spinner.classList.remove('hidden');
@@ -182,26 +234,99 @@
             password: document.getElementById('password').value,
           }),
         });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Geçersiz kullanıcı adı veya şifre.');
 
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'Invalid credentials');
+        if (data.twoFactorRequired) {
+          // 2FA gerekli — ikinci adıma geç
+          _tempToken = data.tempToken;
+          window._2faMethod = data.method || 'email';
+          document.getElementById('login-step').classList.add('hidden');
+          document.getElementById('twofa-step').classList.remove('hidden');
+          if (data.method === 'totp') {
+            document.getElementById('twofa-hint').textContent =
+              'Google Authenticator uygulamanızdaki 6 haneli kodu girin.';
+          } else {
+            const maskedEmail = data.user?.email
+              ? data.user.email.replace(/(.{2})(.*)(@.*)/, '$1***$3')
+              : 'kayıtlı e-posta adresinize';
+            document.getElementById('twofa-hint').textContent =
+              '6 haneli doğrulama kodu ' + maskedEmail + ' adresine gönderildi.';
+          }
+        } else {
+          // 2FA yok — direkt giriş
+          localStorage.setItem('token', data.token);
+          window.location.href = '/admin';
         }
+      } catch (error) {
+        showError(error.message);
+        resetBtn('submit-btn', 'btn-text', 'btn-spinner');
+      }
+    });
 
-        const { token } = await res.json();
-        localStorage.setItem('token', token);
+    // ── Adım 2: OTP doğrulama ────────────────────────────────
+    document.getElementById('twofa-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const btn     = document.getElementById('twofa-btn');
+      const btnText = document.getElementById('twofa-btn-text');
+      const spinner = document.getElementById('twofa-spinner');
+      const errEl   = document.getElementById('error-message');
+      btn.disabled = true;
+      btnText.classList.add('hidden');
+      spinner.classList.remove('hidden');
+      errEl.classList.add('hidden');
+
+      const otp = document.getElementById('otp-input').value.trim();
+      try {
+        const res = await fetch('/crm/auth/2fa/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tempToken: _tempToken, otp, method: window._2faMethod || 'email' }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Doğrulama başarısız.');
+        localStorage.setItem('token', data.token);
         window.location.href = '/admin';
       } catch (error) {
-        errEl.textContent = error.message;
-        errEl.classList.remove('hidden');
-        btn.disabled = false;
-        btnText.classList.remove('hidden');
-        spinner.classList.add('hidden');
-        const card = document.querySelector('.card');
-        card.classList.remove('shake');
-        void card.offsetWidth;
-        card.classList.add('shake');
+        showError(error.message);
+        resetBtn('twofa-btn', 'twofa-btn-text', 'twofa-spinner');
       }
+    });
+
+    // ── Kodu yeniden gönder ──────────────────────────────────
+    document.getElementById('resend-otp').addEventListener('click', async function () {
+      this.disabled = true;
+      this.textContent = 'Gönderiliyor...';
+      document.getElementById('error-message').classList.add('hidden');
+      try {
+        const res = await fetch('/crm/auth/2fa/resend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tempToken: _tempToken }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Gönderilemedi.');
+        this.textContent = 'Kod gönderildi ✓';
+        setTimeout(() => { this.disabled = false; this.textContent = 'Kodu tekrar gönder'; }, 30000);
+      } catch (err) {
+        showError(err.message);
+        this.disabled = false;
+        this.textContent = 'Kodu tekrar gönder';
+      }
+    });
+
+    // ── Geri dön ────────────────────────────────────────────
+    document.getElementById('back-to-login').addEventListener('click', function () {
+      _tempToken = null;
+      document.getElementById('twofa-step').classList.add('hidden');
+      document.getElementById('login-step').classList.remove('hidden');
+      document.getElementById('error-message').classList.add('hidden');
+      document.getElementById('otp-input').value = '';
+    });
+
+    // OTP kutusuna sadece rakam
+    document.getElementById('otp-input').addEventListener('input', function () {
+      this.value = this.value.replace(/\D/g, '').slice(0, 6);
     });
   </script>
 </body>

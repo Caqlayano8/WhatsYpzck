@@ -10,7 +10,7 @@ async function loadIntegrations() {
     renderIntegrationsTab();
     loadInboundApiKey();
   } catch {
-    showToast('Failed to load integrations', 'error');
+    showToast('Entegrasyonlar yuklenemedi', 'error');
   }
 }
 
@@ -41,14 +41,14 @@ function renderIntegrationTable(tbodyId, rows, colspan) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center py-8 text-gray-400 text-sm">No integrations configured</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center py-8 text-gray-400 text-sm">Tanimli entegrasyon yok</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(i => {
     const statusBadge = i.lastStatus === 'ok'
       ? `<span class="badge badge-sent">OK</span>`
       : i.lastStatus === 'error'
-      ? `<span class="badge badge-failed" title="${i.lastError || ''}">Error</span>`
+      ? `<span class="badge badge-failed" title="${i.lastError || ''}">Hata</span>`
       : `<span class="badge badge-draft">—</span>`;
     const typeBadge = i.type === 'slack'
       ? `<span class="badge" style="background:#e8f5e9;color:#2e7d32;">Slack</span>`
@@ -58,7 +58,7 @@ function renderIntegrationTable(tbodyId, rows, colspan) {
     const events = (i.events || []).map(e => `<span class="tag-chip">${e}</span>`).join(' ') || '—';
     const enabledBadge = i.enabled
       ? `<span class="badge badge-sent">ON</span>`
-      : `<span class="badge badge-draft">OFF</span>`;
+      : `<span class="badge badge-draft">KAPALI</span>`;
     return `<tr class="trow border-b border-gray-50">
       <td class="px-5 py-3 text-sm font-medium text-gray-900">${i.name}</td>
       ${colspan === 5 && i.type !== 'webhook' ? `<td class="px-5 py-3">${typeBadge}</td>` : ''}
@@ -66,7 +66,7 @@ function renderIntegrationTable(tbodyId, rows, colspan) {
       <td class="px-5 py-3 text-xs">${events}</td>
       <td class="px-5 py-3">${statusBadge} ${enabledBadge}</td>
       <td class="px-5 py-3 flex items-center gap-2">
-        <button onclick="openIntegrationModal('${i._id}')" class="text-xs text-indigo-600 hover:underline">Edit</button>
+        <button onclick="openIntegrationModal('${i._id}')" class="text-xs text-indigo-600 hover:underline">Duzenle</button>
         <button onclick="testIntegration('${i._id}')" class="text-xs text-gray-500 hover:text-gray-800" title="Test fire"><i class="fas fa-paper-plane"></i> Test</button>
         <button onclick="deleteIntegration('${i._id}')" class="text-xs text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
       </td>
@@ -79,7 +79,7 @@ window.openIntegrationModal = async function (id, forceType) {
   AS.currentIntegrationId = id;
   const existing = id ? AS.integrations.find(i => i._id === id) : null;
   const type = forceType || existing?.type || 'webhook';
-  document.getElementById('integration-modal-title').textContent = id ? 'Edit Integration' : `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+  document.getElementById('integration-modal-title').textContent = id ? 'Entegrasyon Düzenle' : `${type.charAt(0).toUpperCase() + type.slice(1)} Ekle`;
 
   document.getElementById('int-name').value    = existing?.name   || '';
   document.getElementById('int-url').value     = existing?.url    || '';
@@ -90,7 +90,7 @@ window.openIntegrationModal = async function (id, forceType) {
   const urlHint  = document.getElementById('int-url-hint');
   const urlInput = document.getElementById('int-url');
   if (type === 'email') {
-    urlLabel.textContent = 'Recipients';
+    urlLabel.textContent = 'Alıcılar';
     urlInput.placeholder = 'alice@example.com, bob@example.com';
     urlHint.classList.remove('hidden');
   } else {
@@ -122,7 +122,7 @@ window.saveIntegration = async function () {
   const type    = document.getElementById('int-enabled-toggle').dataset.type || 'webhook';
   const events  = [...document.querySelectorAll('#int-events-list input:checked')].map(c => c.value);
 
-  if (!name || !url) return showToast('Name and URL are required', 'error');
+  if (!name || !url) return showToast('Ad ve adres zorunludur', 'error');
   try {
     if (AS.currentIntegrationId) {
       await apiFetch(`/crm/integrations/${AS.currentIntegrationId}`, 'PUT', { name, type, url, events, secret, enabled });
@@ -131,29 +131,29 @@ window.saveIntegration = async function () {
     }
     closeIntegrationModal();
     await loadIntegrations();
-    showToast('Integration saved');
+    showToast('Entegrasyon kaydedildi');
   } catch {
-    showToast('Failed to save integration', 'error');
+    showToast('Entegrasyon kaydedilemedi', 'error');
   }
 };
 
 window.deleteIntegration = async function (id) {
-  if (!confirm('Delete this integration?')) return;
+  if (!confirm('Bu entegrasyon silinsin mi?')) return;
   try {
     await apiFetch(`/crm/integrations/${id}`, 'DELETE');
     await loadIntegrations();
-    showToast('Integration deleted');
+    showToast('Entegrasyon silindi');
   } catch {
-    showToast('Failed to delete', 'error');
+    showToast('Silme islemi basarisiz oldu', 'error');
   }
 };
 
 window.testIntegration = async function (id) {
   try {
     await apiFetch(`/crm/integrations/${id}/test`, 'POST');
-    showToast('Test event fired — check your endpoint');
+    showToast('Test olayi gonderildi');
   } catch {
-    showToast('Test failed', 'error');
+    showToast('Test basarisiz oldu', 'error');
   }
 };
 
@@ -171,7 +171,7 @@ async function loadAutoReplies() {
     AS.autoReplies = await apiFetch('/crm/auto-reply');
     renderAutoReplies();
   } catch {
-    showToast('Failed to load auto-reply rules', 'error');
+    showToast('Otomatik yanit kurallari yuklenemedi', 'error');
   }
 }
 
@@ -180,7 +180,7 @@ function renderAutoReplies() {
   const tbody = document.getElementById('autoreply-table-body');
   if (!tbody) return;
   if (!AS.autoReplies.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-400 text-sm">No rules configured</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-400 text-sm">Tanimli kural yok</td></tr>`;
     return;
   }
   tbody.innerHTML = AS.autoReplies.map(r => {
@@ -189,7 +189,7 @@ function renderAutoReplies() {
       : `<span class="text-xs text-gray-600 truncate max-w-xs block" title="${r.response}">${r.response.substring(0, 50)}${r.response.length > 50 ? '…' : ''}</span>`;
     const enabled = r.enabled
       ? `<span class="badge badge-sent">ON</span>`
-      : `<span class="badge badge-draft">OFF</span>`;
+      : `<span class="badge badge-draft">KAPALI</span>`;
     return `<tr class="trow border-b border-gray-50">
       <td class="px-5 py-3 text-sm font-medium text-gray-900">${r.name}</td>
       <td class="px-5 py-3 font-mono text-xs text-gray-700">${r.trigger}</td>
@@ -198,7 +198,7 @@ function renderAutoReplies() {
       <td class="px-5 py-3 text-xs text-gray-500">${r.cooldownMinutes}m</td>
       <td class="px-5 py-3">${enabled}</td>
       <td class="px-5 py-3 flex items-center gap-2">
-        <button onclick="openAutoReplyModal('${r._id}')" class="text-xs text-indigo-600 hover:underline">Edit</button>
+        <button onclick="openAutoReplyModal('${r._id}')" class="text-xs text-indigo-600 hover:underline">Duzenle</button>
         <button onclick="deleteAutoReply('${r._id}')" class="text-xs text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
       </td>
     </tr>`;
@@ -209,7 +209,7 @@ window.openAutoReplyModal = function (id) {
   const AS = window.AdminState;
   AS.currentAutoReplyId = id;
   const existing = id ? AS.autoReplies.find(r => r._id === id) : null;
-  document.getElementById('autoreply-modal-title').textContent = id ? 'Edit Auto-Reply Rule' : 'Add Auto-Reply Rule';
+  document.getElementById('autoreply-modal-title').textContent = id ? 'Otomatik Yanit Kuralini Duzenle' : 'Otomatik Yanit Kurali Ekle';
 
   document.getElementById('ar-name').value       = existing?.name      || '';
   document.getElementById('ar-trigger').value    = existing?.trigger   || '';
@@ -244,8 +244,8 @@ window.saveAutoReply = async function () {
   const aiPrompt        = document.getElementById('ar-aiprompt').value.trim();
   const enabled         = document.getElementById('ar-enabled-toggle').classList.contains('on');
 
-  if (!name || !trigger) return showToast('Name and trigger are required', 'error');
-  if (!useAI && !response) return showToast('Provide a static response or enable AI', 'error');
+  if (!name || !trigger) return showToast('Ad ve tetikleyici zorunludur', 'error');
+  if (!useAI && !response) return showToast('Sabit bir yanit girin veya yapay zekayi etkinlestirin', 'error');
 
   const payload = { name, matchType, trigger, response, useAI, aiProvider, aiPrompt, cooldownMinutes, priority, enabled };
   try {
@@ -256,20 +256,20 @@ window.saveAutoReply = async function () {
     }
     closeAutoReplyModal();
     await loadAutoReplies();
-    showToast('Auto-reply rule saved');
+    showToast('Otomatik yanit kurali kaydedildi');
   } catch {
-    showToast('Failed to save rule', 'error');
+    showToast('Kural kaydedilemedi', 'error');
   }
 };
 
 window.deleteAutoReply = async function (id) {
-  if (!confirm('Delete this auto-reply rule?')) return;
+  if (!confirm('Bu otomatik yanit kurali silinsin mi?')) return;
   try {
     await apiFetch(`/crm/auto-reply/${id}`, 'DELETE');
     await loadAutoReplies();
-    showToast('Rule deleted');
+    showToast('Kural silindi');
   } catch {
-    showToast('Failed to delete', 'error');
+    showToast('Silme islemi basarisiz oldu', 'error');
   }
 };
 
@@ -285,7 +285,7 @@ function renderEmailIntegrationTable(rows) {
   const tbody = document.getElementById('email-table-body');
   if (!tbody) return;
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-10 text-gray-400 text-sm"><i class="fas fa-envelope text-3xl mb-3 block opacity-30"></i>No email integrations configured</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-10 text-gray-400 text-sm"><i class="fas fa-envelope text-3xl mb-3 block opacity-30"></i>Tanimli e-posta entegrasyonu yok</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(i => {
@@ -293,14 +293,14 @@ function renderEmailIntegrationTable(rows) {
     const statusBadge = i.lastStatus === 'ok'
       ? `<span class="badge badge-sent">OK</span>`
       : i.lastStatus === 'error'
-      ? `<span class="badge badge-failed" title="${i.lastError || ''}">Error</span>`
+      ? `<span class="badge badge-failed" title="${i.lastError || ''}">Hata</span>`
       : `<span class="badge badge-draft">—</span>`;
     return `<tr class="trow border-b border-gray-50">
       <td class="px-4 py-3 text-sm font-medium text-gray-900">${i.name} ${statusBadge}</td>
       <td class="px-4 py-3 text-xs text-gray-500 max-w-xs truncate" title="${i.url}">${i.url}</td>
       <td class="px-4 py-3 text-xs">${events}</td>
       <td class="px-4 py-3 flex items-center gap-2">
-        <button onclick="openIntegrationModal('${i._id}')" class="text-xs text-indigo-600 hover:underline">Edit</button>
+        <button onclick="openIntegrationModal('${i._id}')" class="text-xs text-indigo-600 hover:underline">Duzenle</button>
         <button onclick="testIntegration('${i._id}')" class="text-xs text-gray-500 hover:text-gray-800" title="Test"><i class="fas fa-paper-plane"></i></button>
         <button onclick="deleteIntegration('${i._id}')" class="text-xs text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
       </td>
@@ -335,18 +335,18 @@ window.saveSmtp = async function () {
   };
   try {
     await apiFetch('/crm/integrations/smtp', 'PUT', payload);
-    showToast('SMTP settings saved');
+    showToast('SMTP ayarlari kaydedildi');
   } catch {
-    showToast('Failed to save SMTP settings', 'error');
+    showToast('SMTP ayarlari kaydedilemedi', 'error');
   }
 };
 
 window.testSmtp = async function () {
   try {
     const res = await apiFetch('/crm/integrations/smtp/test', 'POST');
-    showToast(res.message || 'Connection successful', 'success');
+    showToast(res.message || 'Baglanti basarili', 'success');
   } catch {
-    showToast('SMTP test failed — check your credentials', 'error');
+    showToast('SMTP testi basarisiz oldu', 'error');
   }
 };
 
@@ -360,18 +360,18 @@ async function loadInboundApiKey() {
 }
 
 window.rotateInboundKey = async function () {
-  if (!confirm('Rotate the inbound API key? The old key will stop working immediately.')) return;
+  if (!confirm('Gelen API anahtari yenilensin mi? Eski anahtar hemen gecersiz olur.')) return;
   try {
     const data = await apiFetch('/crm/inbound/api-key/rotate', 'POST');
     document.getElementById('inbound-api-key-input').value = data.inboundApiKey;
-    showToast('API key rotated — copy and store it safely');
+    showToast('API anahtari yenilendi');
   } catch {
-    showToast('Failed to rotate key', 'error');
+    showToast('Anahtar yenilenemedi', 'error');
   }
 };
 
 window.copyInboundKey = function () {
   const val = document.getElementById('inbound-api-key-input').value;
-  if (!val) return showToast('No key to copy', 'error');
-  navigator.clipboard.writeText(val).then(() => showToast('Key copied to clipboard'));
+  if (!val) return showToast('Kopyalanacak anahtar yok', 'error');
+  navigator.clipboard.writeText(val).then(() => showToast('Anahtar panoya kopyalandi'));
 };

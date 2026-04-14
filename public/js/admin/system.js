@@ -1,4 +1,31 @@
-﻿// Commands
+// Agresif Mod ve Kısıtlamalar
+window.toggleAggressiveMode = async function () {
+  try {
+    await apiFetch('/crm/settings/aggressive-mode', 'POST');
+    showToast('Agresif mod değiştirildi', 'success');
+    loadSettings();
+  } catch {
+    showToast('Agresif mod değiştirilemedi', 'error');
+  }
+};
+
+window.removeAllRestrictions = async function () {
+  try {
+    await apiFetch('/crm/settings/remove-restrictions', 'POST');
+    showToast('Tüm kısıtlamalar kaldırıldı', 'success');
+    loadSettings();
+  } catch {
+    showToast('Kısıtlamalar kaldırılamadı', 'error');
+  }
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+  const btnAggressive = document.getElementById('btn-aggressive-mode');
+  if (btnAggressive) btnAggressive.onclick = window.toggleAggressiveMode;
+  const btnRemove = document.getElementById('btn-remove-restrictions');
+  if (btnRemove) btnRemove.onclick = window.removeAllRestrictions;
+});
+// Commands
 
 async function loadCommands() {
   const AS = window.AdminState;
@@ -13,7 +40,7 @@ async function loadCommands() {
     }
     renderCommands(list, stats);
   } catch {
-    showToast('Failed to load commands', 'error');
+    showToast('Komutlar yuklenemedi', 'error');
   }
 }
 
@@ -23,7 +50,7 @@ function renderCommands(list, stats) {
   const tbody = document.getElementById('commands-table-body');
   tbody.innerHTML = '';
   if (!list || !list.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">No commands found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">Komut bulunamadi</td></tr>`;
     return;
   }
   list.forEach(cmd => {
@@ -35,13 +62,13 @@ function renderCommands(list, stats) {
       <td class="px-6 py-3.5 text-sm text-gray-600">${count}</td>
       <td class="px-6 py-3.5">
         <span class="text-xs font-bold px-2.5 py-1 rounded-full ${cmd.disabled ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}">
-          ${cmd.disabled ? 'Disabled' : 'Enabled'}
+          ${cmd.disabled ? 'Devre Disi' : 'Etkin'}
         </span>
       </td>
       <td class="px-6 py-3.5">
         <button onclick="toggleCommand('${escHtml(cmd.name)}')"
           class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${cmd.disabled ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-600 hover:bg-red-50'}">
-          ${cmd.disabled ? 'Enable' : 'Disable'}
+          ${cmd.disabled ? 'Etkinlestir' : 'Devre Disi Birak'}
         </button>
       </td>
     `;
@@ -52,14 +79,94 @@ function renderCommands(list, stats) {
 window.toggleCommand = async function (name) {
   try {
     await apiFetch(`/crm/commands/${encodeURIComponent(name)}`, 'PATCH');
-    showToast('Command updated', 'success');
+    showToast('Komut guncellendi', 'success');
     loadCommands();
   } catch {
-    showToast('Failed to update command', 'error');
+    showToast('Komut guncellenemedi', 'error');
   }
 };
 
 // Users
+
+const USER_ROLE_META = {
+  admin: { label: 'Admin', badge: 'bg-indigo-100 text-indigo-700' },
+  field_tech: { label: 'Teknisyen', badge: 'bg-sky-100 text-sky-700' },
+  viewer: { label: 'Kullanici', badge: 'bg-emerald-100 text-emerald-700' },
+};
+
+const TECH_PERMISSION_KEYS = [
+  'canViewIncidents',
+  'canUpdateIncidents',
+  'canViewConversations',
+  'canSendMessages',
+  'canViewReports',
+];
+
+function roleDefaultPermissions(role) {
+  if (role === 'admin') {
+    return {
+      canViewIncidents: true,
+      canUpdateIncidents: true,
+      canViewConversations: true,
+      canSendMessages: true,
+      canViewReports: true,
+    };
+  }
+  if (role === 'field_tech') {
+    return {
+      canViewIncidents: true,
+      canUpdateIncidents: true,
+      canViewConversations: false,
+      canSendMessages: false,
+      canViewReports: true,
+    };
+  }
+  return {
+    canViewIncidents: true,
+    canUpdateIncidents: false,
+    canViewConversations: false,
+    canSendMessages: false,
+    canViewReports: true,
+  };
+}
+
+function setUserPermissionControls(role, permissions = {}) {
+  const wrap = document.getElementById('user-permissions-wrap');
+  if (!wrap) return;
+
+  const defaults = roleDefaultPermissions(role);
+  const show = role === 'field_tech';
+  wrap.classList.toggle('hidden', !show);
+
+  TECH_PERMISSION_KEYS.forEach((key) => {
+    const el = document.getElementById(`user-perm-${key}`);
+    if (!el) return;
+    const value = permissions[key] !== undefined ? permissions[key] : defaults[key];
+    el.checked = Boolean(value);
+    el.disabled = !show;
+  });
+}
+
+function readUserPermissionControls(role) {
+  const defaults = roleDefaultPermissions(role);
+  if (role !== 'field_tech') return defaults;
+
+  const out = { ...defaults };
+  TECH_PERMISSION_KEYS.forEach((key) => {
+    const el = document.getElementById(`user-perm-${key}`);
+    if (!el) return;
+    out[key] = Boolean(el.checked);
+  });
+  return out;
+}
+
+function userRoleLabel(role) {
+  return USER_ROLE_META[role]?.label || role || '—';
+}
+
+function userRoleBadge(role) {
+  return USER_ROLE_META[role]?.badge || 'bg-gray-100 text-gray-600';
+}
 
 async function loadUsers() {
   const AS = window.AdminState;
@@ -67,7 +174,7 @@ async function loadUsers() {
     AS.users = await apiFetch('/crm/users');
     renderUsers(AS.users);
   } catch {
-    showToast('Failed to load users', 'error');
+    showToast('Kullanicilar yuklenemedi', 'error');
   }
 }
 
@@ -76,7 +183,7 @@ function renderUsers(list) {
   const tbody = document.getElementById('users-table-body');
   tbody.innerHTML = '';
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">No users found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-400">Kullanici bulunamadi</td></tr>`;
     return;
   }
   list.forEach(u => {
@@ -84,23 +191,27 @@ function renderUsers(list) {
     const tr = document.createElement('tr');
     tr.className = 'trow';
     tr.innerHTML = `
-      <td class="px-6 py-3.5 text-sm font-semibold text-gray-800">${escHtml(u.username)}</td>
       <td class="px-6 py-3.5">
-        <span class="text-xs font-bold px-2.5 py-1 rounded-full ${u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}">
-          ${u.role}
+        <div class="text-sm font-semibold text-gray-800">${escHtml(u.username)}</div>
+        <div class="text-xs text-gray-400">${escHtml(u.displayName || '—')}</div>
+      </td>
+      <td class="px-6 py-3.5">
+        <span class="text-xs font-bold px-2.5 py-1 rounded-full ${userRoleBadge(u.role)}">
+          ${userRoleLabel(u.role)}
         </span>
       </td>
+      <td class="px-6 py-3.5 text-sm text-gray-500">${escHtml(u.phone || '—')}</td>
       <td class="px-6 py-3.5 text-sm text-gray-500">${fmtDate(u.createdAt)}</td>
       <td class="px-6 py-3.5">
         <div class="flex items-center gap-1">
           ${isSelf
-            ? '<span class="text-xs text-gray-400 italic">You</span>'
-            : `<button onclick="changeUserRole('${u._id}', '${u.role === 'admin' ? 'user' : 'admin'}')"
-                 title="Change to ${u.role === 'admin' ? 'user' : 'admin'}"
+            ? '<span class="text-xs text-gray-400 italic">Siz</span>'
+            : `<button onclick="editUser('${u._id}')"
+                 title="Duzenle"
                  class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs">
-                 <i class="fas fa-exchange-alt"></i>
+                 <i class="fas fa-pen"></i>
                </button>
-               <button onclick="deleteUser('${u._id}')" title="Delete"
+               <button onclick="deleteUser('${u._id}')" title="Sil"
                  class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg text-xs">
                  <i class="fas fa-trash"></i>
                </button>`
@@ -115,11 +226,17 @@ function renderUsers(list) {
 window.openUserModal = function (user = null) {
   const AS = window.AdminState;
   AS.currentUserId = user?._id || null;
-  document.getElementById('user-modal-title').textContent = user ? 'Edit User' : 'Add User';
+  document.getElementById('user-modal-title').textContent = user ? 'Kullanici Duzenle' : 'Kullanici Ekle';
   document.getElementById('user-modal-id').value   = user?._id    || '';
   document.getElementById('user-username').value   = user?.username || '';
+  document.getElementById('user-display-name').value = user?.displayName || '';
+  document.getElementById('user-phone').value = user?.phone || '';
   document.getElementById('user-password').value   = '';
-  document.getElementById('user-role').value       = user?.role    || 'admin';
+  document.getElementById('user-role').value       = user?.role    || 'viewer';
+  setUserPermissionControls(user?.role || 'viewer', user?.permissions || {});
+  document.getElementById('user-username').readOnly = !!user;
+  document.getElementById('user-username').classList.toggle('bg-gray-100', !!user);
+  document.getElementById('user-username-note').classList.toggle('hidden', !user);
   document.getElementById('user-password-wrap').classList.toggle('hidden', !!user);
   document.getElementById('user-modal').classList.remove('hidden');
 };
@@ -132,50 +249,59 @@ window.closeUserModal = function () {
 
 window.saveUser = async function () {
   const username = document.getElementById('user-username').value.trim();
+  const displayName = document.getElementById('user-display-name').value.trim();
+  const phone = document.getElementById('user-phone').value.trim();
   const password = document.getElementById('user-password').value;
   const role     = document.getElementById('user-role').value;
+  const permissions = readUserPermissionControls(role);
   const id       = document.getElementById('user-modal-id').value;
 
-  if (!username) { showToast('Username is required', 'warning'); return; }
-  if (!id && !password) { showToast('Password is required for new users', 'warning'); return; }
+  if (!username) { showToast('Kullanici adi zorunludur', 'warning'); return; }
+  if (!id && !password) { showToast('Yeni kullanici icin sifre zorunludur', 'warning'); return; }
 
   try {
     if (id) {
-      await apiFetch(`/crm/users/${id}`, 'PUT', { role });
-      showToast('User updated', 'success');
+      await apiFetch(`/crm/users/${id}`, 'PUT', { role, displayName, phone, permissions });
+      showToast('Kullanici guncellendi', 'success');
     } else {
-      await apiFetch('/crm/auth/register', 'POST', { username, password, role });
-      showToast('User created', 'success');
+      await apiFetch('/crm/auth/register', 'POST', { username, password, role, displayName, phone });
+      showToast('Kullanici olusturuldu', 'success');
     }
     closeUserModal();
     loadUsers();
   } catch {
-    showToast('Failed to save user', 'error');
+    showToast('Kullanici kaydedilemedi', 'error');
   }
 };
 
-window.changeUserRole = async function (id, newRole) {
-  try {
-    await apiFetch(`/crm/users/${id}`, 'PUT', { role: newRole });
-    showToast('Role updated', 'success');
-    loadUsers();
-  } catch {
-    showToast('Failed to update role', 'error');
-  }
+window.editUser = function (id) {
+  const AS = window.AdminState;
+  const user = (AS.users || []).find(x => x._id === id);
+  if (!user) return;
+  openUserModal(user);
 };
 
 window.deleteUser = async function (id) {
   const AS = window.AdminState;
   const u = AS.users.find(x => x._id === id);
-  if (!confirm(`Delete user "${u?.username}"? This cannot be undone.`)) return;
+  if (!confirm(`"${u?.username}" kullanicisi silinsin mi? Bu islem geri alinamaz.`)) return;
   try {
     await apiFetch(`/crm/users/${id}`, 'DELETE');
-    showToast('User deleted', 'success');
+    showToast('Kullanici silindi', 'success');
     loadUsers();
   } catch {
-    showToast('Failed to delete user', 'error');
+    showToast('Kullanici silinemedi', 'error');
   }
 };
+
+document.addEventListener('DOMContentLoaded', () => {
+  const roleEl = document.getElementById('user-role');
+  if (!roleEl) return;
+  roleEl.addEventListener('change', (e) => {
+    const role = e?.target?.value || 'viewer';
+    setUserPermissionControls(role, {});
+  });
+});
 
 // Audit Logs
 
@@ -188,7 +314,7 @@ window.loadAuditLogs = async function (page = 1) {
     const res = await apiFetch(`/crm/audit-logs?page=${page}&limit=20&action=${action}&resource=${resource}`);
     renderAuditLogs(res.data || [], res.meta || {});
   } catch {
-    showToast('Failed to load audit logs', 'error');
+    showToast('Denetim kayitlari yuklenemedi', 'error');
   }
 };
 
@@ -198,7 +324,7 @@ function renderAuditLogs(logs, meta) {
   document.getElementById('audit-total').textContent = meta.total || logs.length;
 
   if (!logs.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-8 text-center text-sm text-gray-400">No audit entries found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-8 text-center text-sm text-gray-400">Denetim kaydi bulunamadi</td></tr>`;
   } else {
     logs.forEach(l => {
       const details = l.details ? JSON.stringify(l.details).substring(0, 80) : '—';
@@ -303,10 +429,10 @@ async function loadSettings() {
 
     const botInfoGrid = document.getElementById('bot-info-grid');
     botInfoGrid.innerHTML = [
-      ['Environment', data.env?.ENV],
+      ['Ortam', data.env?.ENV],
       ['Port',        data.env?.PORT],
-      ['Bot Name',    'WhatsYpzck'],
-      ['Prefix',      data.env?.ENV === 'production' ? '/' : '!'],
+      ['Bot Adi',    data.botIdentity?.name || 'WhatsYpzck'],
+      ['On Ek',      data.env?.ENV === 'production' ? '/' : '!'],
     ].map(([k, v]) => `
       <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
         <span class="text-sm text-gray-500">${k}</span>
@@ -334,7 +460,7 @@ async function loadSettings() {
           <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
             <span class="text-sm text-gray-700 font-medium">${label}</span>
             <span class="text-xs font-bold px-2.5 py-1 rounded-full ${configured ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}">
-              ${configured ? '✓ Configured' : '✗ Missing'}
+              ${configured ? '✓ Yapilandirildi' : '✗ Eksik'}
             </span>
           </div>
         `;
@@ -351,6 +477,20 @@ async function loadSettings() {
     document.getElementById('notification-status-whatsapp-template').value = data.notificationTemplates?.statusWhatsappTemplate || '';
     document.getElementById('notification-status-email-template').value = data.notificationTemplates?.statusEmailTemplate || '';
     document.getElementById('notification-created-email-template').value = data.notificationTemplates?.createdEmailTemplate || '';
+    document.getElementById('bot-template-kvkk').value = data.botMessageTemplates?.kvkkMessage || '';
+    document.getElementById('bot-template-welcome').value = data.botMessageTemplates?.welcomeMenuMessage || '';
+    document.getElementById('bot-template-main-menu').value = data.botMessageTemplates?.mainMenuMessage || '';
+    document.getElementById('bot-template-fault-category').value = data.botMessageTemplates?.faultCategoryMessage || '';
+    document.getElementById('bot-template-incident-status-start').value = data.botMessageTemplates?.incidentStatusStartMessage || '';
+    document.getElementById('bot-template-incident-status-result').value = data.botMessageTemplates?.incidentStatusResultTemplate || '';
+    document.getElementById('bot-template-incident-closure-no-open').value = data.botMessageTemplates?.incidentClosureNoOpenMessage || '';
+    document.getElementById('bot-template-incident-closure-selection').value = data.botMessageTemplates?.incidentClosureSelectionMessage || '';
+    document.getElementById('bot-template-incident-closure-confirm').value = data.botMessageTemplates?.incidentClosureConfirmMessage || '';
+    document.getElementById('bot-template-incident-closure-need-approval').value = data.botMessageTemplates?.incidentClosureNeedApprovalMessage || '';
+    document.getElementById('bot-template-incident-closure-success').value = data.botMessageTemplates?.incidentClosureSuccessMessage || '';
+    document.getElementById('bot-template-chat-media-preview').value = data.botMessageTemplates?.chatMediaPreviewText || 'Fotograf gonderildi';
+    document.getElementById('bot-identity-name').value = data.botIdentity?.name || 'WhatsYpzck';
+    document.getElementById('bot-identity-author').value = data.botIdentity?.author || 'Ç. Kurtoğlu';
     bindNotificationPreviewEvents();
     updateNotificationPreview();
     AS.autoDownloadEnabled = data.autoDownloadEnabled ?? true;
@@ -365,7 +505,7 @@ async function loadSettings() {
       el.dataset.persistedValue = persistedValue;
     });
   } catch {
-    showToast('Failed to load settings', 'error');
+    showToast('Ayarlar yuklenemedi', 'error');
   }
 }
 
@@ -374,7 +514,7 @@ async function saveSettings() {
   const maxFileSizeMb = parseInt(document.getElementById('setting-maxFileSizeMb').value, 10);
 
   if (isNaN(maxFileSizeMb) || maxFileSizeMb < 1 || maxFileSizeMb > 500) {
-    showToast('Max file size must be between 1 and 500 MB', 'error');
+    showToast('Maksimum dosya boyutu 1 ile 500 MB arasinda olmalidir', 'error');
     return;
   }
 
@@ -398,6 +538,20 @@ async function saveSettings() {
     statusEmailTemplate: String(document.getElementById('notification-status-email-template')?.value || '').trim(),
     createdEmailTemplate: String(document.getElementById('notification-created-email-template')?.value || '').trim(),
   };
+  const botMessageTemplates = {
+    kvkkMessage: String(document.getElementById('bot-template-kvkk')?.value || '').trim(),
+    welcomeMenuMessage: String(document.getElementById('bot-template-welcome')?.value || '').trim(),
+    mainMenuMessage: String(document.getElementById('bot-template-main-menu')?.value || '').trim(),
+    faultCategoryMessage: String(document.getElementById('bot-template-fault-category')?.value || '').trim(),
+    incidentStatusStartMessage: String(document.getElementById('bot-template-incident-status-start')?.value || '').trim(),
+    incidentStatusResultTemplate: String(document.getElementById('bot-template-incident-status-result')?.value || '').trim(),
+    incidentClosureNoOpenMessage: String(document.getElementById('bot-template-incident-closure-no-open')?.value || '').trim(),
+    incidentClosureSelectionMessage: String(document.getElementById('bot-template-incident-closure-selection')?.value || '').trim(),
+    incidentClosureConfirmMessage: String(document.getElementById('bot-template-incident-closure-confirm')?.value || '').trim(),
+    incidentClosureNeedApprovalMessage: String(document.getElementById('bot-template-incident-closure-need-approval')?.value || '').trim(),
+    incidentClosureSuccessMessage: String(document.getElementById('bot-template-incident-closure-success')?.value || '').trim(),
+    chatMediaPreviewText: String(document.getElementById('bot-template-chat-media-preview')?.value || '').trim(),
+  };
   const apiKeys = {};
   keyIds.forEach(k => {
     const el = document.getElementById(`key-${k}`);
@@ -405,12 +559,16 @@ async function saveSettings() {
     const persisted = el?.dataset?.persistedValue || '';
     if (val && val !== persisted) apiKeys[k] = val;
   });
+  const botIdentity = {
+    name:   String(document.getElementById('bot-identity-name')?.value   || '').trim() || 'WhatsYpzck',
+    author: String(document.getElementById('bot-identity-author')?.value || '').trim() || 'Ç. Kurtoğlu',
+  };
   try {
-    await apiFetch('/crm/settings', 'PUT', { maxFileSizeMb, autoDownloadEnabled: AS.autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates });
-    showToast('Settings saved', 'success');
+    await apiFetch('/crm/settings', 'PUT', { maxFileSizeMb, autoDownloadEnabled: AS.autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates, botMessageTemplates, botIdentity });
+    showToast('Ayarlar kaydedildi', 'success');
     loadSettings();
   } catch {
-    showToast('Failed to save settings', 'error');
+    showToast('Ayarlar kaydedilemedi', 'error');
   }
 }
 
@@ -426,7 +584,7 @@ window.toggleAutoDownload = function () {
 window.openMessageModal = function (phone, name) {
   const AS = window.AdminState;
   AS.currentRecipient = phone;
-  document.getElementById('msg-recipient-label').textContent = `To: ${name || phone}`;
+  document.getElementById('msg-recipient-label').textContent = `Alici: ${name || phone}`;
   document.getElementById('message-content').value = '';
   document.getElementById('message-modal').classList.remove('hidden');
 };
@@ -443,9 +601,9 @@ window.sendPrivateMessage = async function () {
   if (!message || !AS.currentRecipient) return;
   try {
     await apiFetch('/crm/send-message', 'POST', { phoneNumber: AS.currentRecipient, message });
-    showToast('Message sent!', 'success');
+    showToast('Mesaj gonderildi', 'success');
     closeMessageModal();
   } catch {
-    showToast('Failed to send message', 'error');
+    showToast('Mesaj gonderilemedi', 'error');
   }
 };

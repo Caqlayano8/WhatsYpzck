@@ -23,6 +23,29 @@ export interface IIncident extends Document {
         customerEmailSent: boolean;
         lastError?: string;
     };
+    photoCoords?: { lat: number; lng: number };
+    locationCoords?: { lat: number; lng: number };
+    images?: string[];
+    assignedTechnician?: {
+        userId?: string;
+        username?: string;
+        displayName?: string;
+        phone?: string;
+        assignedAt?: Date;
+        assignedByUserId?: string;
+        assignedByName?: string;
+    };
+    assignment?: {
+        method?: 'manual' | 'auto-area';
+        matchKeywords?: string[];
+    };
+    // Archive ve retention fields
+    isArchived?: boolean;
+    archivedAt?: Date;
+    retention?: {
+        keepUntil?: Date;  // Ne kadar müddet saklanacak
+        retentionDays?: number;  // Gün cinsinden retention süresi
+    };
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -55,7 +78,30 @@ const incidentSchema = new Schema<IIncident>({
         teamEmailSent: { type: Boolean, default: false },
         customerEmailSent: { type: Boolean, default: false },
         lastError: { type: String, default: '' }
-    }
+    },
+    photoCoords: { lat: { type: Number }, lng: { type: Number } },
+    locationCoords: { lat: { type: Number }, lng: { type: Number } },
+    images: [{ type: String }],
+    assignedTechnician: {
+        userId: { type: String, default: '' },
+        username: { type: String, default: '' },
+        displayName: { type: String, default: '' },
+        phone: { type: String, default: '' },
+        assignedAt: { type: Date, default: null },
+        assignedByUserId: { type: String, default: '' },
+        assignedByName: { type: String, default: '' }
+    },
+    assignment: {
+        method: { type: String, enum: ['manual', 'auto-area'], default: 'manual' },
+        matchKeywords: [{ type: String }]
+    },
+    // Archive ve retention fields - ASLA SİLİNMEYECEK, TARİH BAZLI SAKLANACAK
+    isArchived: { type: Boolean, default: false, index: true },
+    archivedAt: { type: Date, default: null },
+    retention: {
+        keepUntil: { type: Date, default: () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) },  // Default 1 yıl
+        retentionDays: { type: Number, default: 365 }
+    },
 }, {
     timestamps: true
 });

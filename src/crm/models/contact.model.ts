@@ -19,6 +19,7 @@ export interface IContact extends Document {
     blocked: boolean;
     archived: boolean;
     score: number;
+    kvkkAccepted?: boolean;
 }
 
 const ContactSchema = new Schema<IContact>({
@@ -34,7 +35,8 @@ const ContactSchema = new Schema<IContact>({
     tags: [{ type: String }],
     blocked: { type: Boolean, default: false },
     archived: { type: Boolean, default: false },
-    score: { type: Number, default: 0 }
+    score: { type: Number, default: 0 },
+    kvkkAccepted: { type: Boolean, default: false }
 }, { timestamps: true });
 
 export const ContactModel = mongoose.model<IContact>('Contact', ContactSchema);

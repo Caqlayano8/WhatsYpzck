@@ -41,7 +41,9 @@ export const INTEGRATION_EVENTS = [
     'contact.new',
     'scheduled.sent',
     'scheduled.failed',
-    'autoreply.triggered'
+    'autoreply.triggered',
+    'incident.created',
+    'incident.status.updated'
 ] as const;
 
 export type IntegrationEvent = typeof INTEGRATION_EVENTS[number];

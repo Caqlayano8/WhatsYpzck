@@ -28,8 +28,11 @@ function getMasterKey(): Buffer | null {
 export function encryptValue(plaintext: string): string {
     const key = getMasterKey();
     if (!key) {
-        logger.warn('ENCRYPTION_MASTER_KEY is not set — API key stored as plaintext. Add it to .env for security.');
-        return plaintext;
+        if (process.env.NODE_ENV === 'production') {
+        throw new Error('ENCRYPTION_MASTER_KEY ortam değişkeni production ortamında zorunludur!');
+    }
+    logger.warn('ENCRYPTION_MASTER_KEY ayarlanmamış — API anahtarı şifresiz saklanıyor. .env dosyasına ekleyin.');
+    return plaintext;
     }
     const iv     = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv(ALGORITHM, key, iv);

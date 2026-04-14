@@ -1,0 +1,34 @@
+{
+  "name": "whatsypzck-v2",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Supsis-style multichannel AI bot v2",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@vitalets/google-translate-api": "^9.2.1",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "faiss-node": "^0.5.1",
+    "langchain": "^0.3.1",
+    "mongodb": "^6.8.0",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^4.67.1",
+    "sqlite3": "^5.1.7",
+    "whatsapp-web.js": "^1.26.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.7.4",
+    "@types/node-cron": "^3.0.11",
+    "@types/node-telegram-bot-api": "^0.64.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.2"
+  }
+}

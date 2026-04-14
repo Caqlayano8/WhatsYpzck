@@ -44,12 +44,11 @@ class EnvConfig {
     static LICENSE_ALLOW_UNLICENSED = process.env.LICENSE_ALLOW_UNLICENSED;
     static LICENSE_FILE_PATH = process.env.LICENSE_FILE_PATH;
     static LICENSE_PUBLIC_KEY_PATH = process.env.LICENSE_PUBLIC_KEY_PATH;
+    static BOT_AUTO_START = process.env.BOT_AUTO_START;
+    static CONVERSATION_WARNING_TIMEOUT_MS = process.env.CONVERSATION_WARNING_TIMEOUT_MS;
+    static CONVERSATION_END_TIMEOUT_MS = process.env.CONVERSATION_END_TIMEOUT_MS;
 
     static validate() {
-
-        if (!fs.existsSync(".env")) {
-            throw new Error(".env file is missing. Please create a .env file at the root directory out of the .env.example file.");
-        }
 
         if (!this.PUPPETEER_EXECUTABLE_PATH) {
             throw new Error("Environment variable PUPPETEER_EXECUTABLE_PATH is missing. Please provide a valid Chrome path.");

@@ -1,3 +1,15 @@
+const TR_LOCALE = 'tr-TR';
+// Resolves a relative media URL to full URL using server base
+function resolveMediaUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const base = window.location.origin; // e.g. http://localhost:3500
+  return base + (url.startsWith('/') ? '' : '/') + url;
+}
+window.resolveMediaUrl = resolveMediaUrl;
+
+const TR_TIME_ZONE = 'Europe/Istanbul';
+
 // Toast notifications
 window.showToast = function (message, type = 'success') {
   const colors = { success: 'bg-green-600', error: 'bg-red-600', warning: 'bg-amber-500', info: 'bg-blue-600' };
@@ -44,7 +56,8 @@ function renderPagination(meta, loadFn, containerId) {
 function fmtDate(d) {
   if (!d) return '—';
   const dt = new Date(d);
-  return dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return dt.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE }) + ' ' +
+    dt.toLocaleTimeString(TR_LOCALE, { timeZone: TR_TIME_ZONE, hour: '2-digit', minute: '2-digit' });
 }
 
 function langBadge(lang) {
@@ -78,11 +91,14 @@ function avatarInitials(name) {
 
 function fmtMsgTime(ts) {
   if (!ts) return '';
-  const d = new Date(ts); const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
+  const d = new Date(ts);
+  const now = new Date();
+  const dDay = d.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE });
+  const nowDay = now.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE });
+  const isToday = dDay === nowDay;
   return isToday
-    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    ? d.toLocaleTimeString(TR_LOCALE, { timeZone: TR_TIME_ZONE, hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE, month: 'short', day: 'numeric' });
 }
 
 function buildBubble(m) {
@@ -90,9 +106,31 @@ function buildBubble(m) {
   const rowCls    = isOut ? 'msg-row-out' : 'msg-row-in';
   const bubbleCls = isOut ? 'msg-bubble msg-bubble-out' : 'msg-bubble msg-bubble-in';
   const timeColor = isOut ? '#5a7a5c' : '#999';
+  const mediaUrl = (typeof resolveMediaUrl === 'function') ? resolveMediaUrl(m.mediaUrl) : (m.mediaUrl || '');
+  const isImageMessage = Boolean(mediaUrl) && (
+    m.type === 'image'
+    || /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl)
+    || String(m.body || '').trim() === '[Empty message]'
+  );
+
+  let contentHtml = '';
+  if (isImageMessage) {
+    contentHtml = `<img src="${escHtml(mediaUrl)}" alt="Fotograf" style="max-width:220px;border-radius:8px;cursor:pointer;display:block;" onclick="window.open(this.src,'_blank')" onerror="this.insertAdjacentHTML('afterend','<a href=&quot;${escHtml(mediaUrl)}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot; style=&quot;color:#2563eb;text-decoration:underline;&quot;>Gorseli ac</a>');this.remove();">`;
+    if (m.body && m.body !== '[Empty message]') {
+      contentHtml += `<div style="margin-top:4px;">${escHtml(m.body)}</div>`;
+    }
+  } else if (mediaUrl) {
+    contentHtml = `<a href="${escHtml(mediaUrl)}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;display:inline-block;margin-bottom:4px;">Ek dosyayi ac</a>`;
+    if (m.body && m.body !== '[Empty message]') {
+      contentHtml += `<div>${escHtml(m.body)}</div>`;
+    }
+  } else {
+    contentHtml = escHtml(m.body);
+  }
+
   return `<div class="${rowCls}">
     <div class="${bubbleCls}">
-      ${escHtml(m.body)}
+      ${contentHtml}
       <div class="msg-time" style="color:${timeColor}">${fmtMsgTime(m.timestamp)}</div>
     </div>
   </div>`;
@@ -107,13 +145,13 @@ function renderMsgList(msgs, containerId) {
   if (!el) return;
   el.innerHTML = '';
   if (!msgs || !msgs.length) {
-    el.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">No messages yet</p>';
+    el.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">Henüz mesaj yok</p>';
     return;
   }
   let lastDate = '';
   msgs.forEach(m => {
     const d = new Date(m.timestamp);
-    const dateStr = d.toLocaleDateString([], { weekday:'long', month:'short', day:'numeric' });
+    const dateStr = d.toLocaleDateString(TR_LOCALE, { timeZone: TR_TIME_ZONE, weekday:'long', month:'short', day:'numeric' });
     if (dateStr !== lastDate) {
       el.insertAdjacentHTML('beforeend', buildDateSeparator(dateStr));
       lastDate = dateStr;

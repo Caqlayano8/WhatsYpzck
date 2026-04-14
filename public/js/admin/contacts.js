@@ -13,7 +13,7 @@ async function loadContacts(page = 1) {
     document.getElementById('contacts-end').textContent   = Math.min(meta.page * meta.limit, meta.total);
     document.getElementById('contacts-total').textContent = meta.total;
   } catch {
-    showToast('Failed to load contacts', 'error');
+    showToast('Kişiler yüklenemedi', 'error');
   }
 }
 
@@ -38,15 +38,15 @@ function renderContacts(contacts) {
   const tbody = document.getElementById('contacts-table-body');
   tbody.innerHTML = '';
   if (!contacts.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-10 text-center text-sm text-gray-400">No contacts found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-10 text-center text-sm text-gray-400">Kişi bulunamadı</td></tr>`;
     return;
   }
   contacts.forEach(c => {
     const tagChips = (c.tags || []).map(t =>
       `<span class="inline-block bg-indigo-50 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-medium">${escHtml(t)}</span>`
     ).join(' ');
-    const blockedBadge  = c.blocked  ? `<span class="ml-1 text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">Blocked</span>`  : '';
-    const archivedBadge = c.archived ? `<span class="ml-1 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">Archived</span>` : '';
+    const blockedBadge  = c.blocked  ? `<span class="ml-1 text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">Engellendi</span>`  : '';
+    const archivedBadge = c.archived ? `<span class="ml-1 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">Arşivlendi</span>` : '';
     const tr = document.createElement('tr');
     tr.className = 'trow';
     tr.innerHTML = `
@@ -56,7 +56,7 @@ function renderContacts(contacts) {
       <td class="px-5 py-3">
         <div class="flex flex-wrap gap-1 items-center">
           ${tagChips}
-          <button onclick="openTagModal('${c._id}')" title="Edit tags"
+          <button onclick="openTagModal('${c._id}')" title="Etiketleri düzenle"
             class="text-xs text-indigo-500 hover:text-indigo-700 px-1.5 py-0.5 rounded hover:bg-indigo-50">
             <i class="fas fa-tag text-xs"></i>
           </button>
@@ -66,16 +66,16 @@ function renderContacts(contacts) {
       <td class="px-5 py-3">
         <div class="flex items-center gap-1">
           <button onclick="openMessageModal('${c.phoneNumber}', '${escHtml(c.name || c.pushName || c.phoneNumber)}')"
-            title="Send message" class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors text-xs">
+            title="Mesaj gönder" class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors text-xs">
             <i class="fas fa-paper-plane"></i>
           </button>
           <button onclick="toggleBlock('${c._id}')"
-            title="${c.blocked ? 'Unblock' : 'Block'}"
+            title="${c.blocked ? 'Engeli Kaldır' : 'Engelle'}"
             class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors text-xs">
             <i class="fas fa-${c.blocked ? 'lock-open' : 'lock'}"></i>
           </button>
           <button onclick="toggleArchive('${c._id}')"
-            title="${c.archived ? 'Unarchive' : 'Archive'}"
+            title="${c.archived ? 'Arşivden Çıkar' : 'Arşivle'}"
             class="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors text-xs">
             <i class="fas fa-${c.archived ? 'box-open' : 'archive'}"></i>
           </button>
@@ -101,11 +101,11 @@ window.exportContacts = async function () {
     a.click();
     URL.revokeObjectURL(a.href);
   } catch {
-    showToast('Export failed', 'error');
+    showToast('Dışa aktarım başarısız', 'error');
   }
 };
 
-window.openImportModal = function () {
+window.openImportModal= function () {
   document.getElementById('import-csv-content').value = '';
   document.getElementById('import-modal').classList.remove('hidden');
 };
@@ -114,14 +114,14 @@ window.closeImportModal = function () {
 };
 window.importContacts = async function () {
   const csv = document.getElementById('import-csv-content').value.trim();
-  if (!csv) { showToast('Please paste CSV content', 'warning'); return; }
+  if (!csv) { showToast('Lütfen CSV içeriğini yapıştırın', 'warning'); return; }
   try {
     const res = await apiFetch('/crm/contacts/import', 'POST', { csv });
-    showToast(`Imported ${res.inserted || 0} contacts`, 'success');
+    showToast(`${res.inserted || 0} kişi içe aktarıldı`, 'success');
     closeImportModal();
     loadContacts(1);
   } catch {
-    showToast('Import failed', 'error');
+    showToast('İçe aktarım başarısız', 'error');
   }
 };
 
@@ -187,11 +187,11 @@ window.saveTags = async function () {
   if (!AS.currentContactId) return;
   try {
     await apiFetch(`/crm/contacts/${AS.currentContactId}/tags`, 'PATCH', { tags: AS.currentTags });
-    showToast('Tags saved', 'success');
+    showToast('Etiketler kaydedildi', 'success');
     closeTagsModal();
     loadContacts(AS.contactsPage);
   } catch {
-    showToast('Failed to save tags', 'error');
+    showToast('Etiketler kaydedilemedi', 'error');
   }
 };
 
@@ -199,10 +199,10 @@ window.toggleBlock = async function (contactId) {
   const AS = window.AdminState;
   try {
     await apiFetch(`/crm/contacts/${contactId}/block`, 'PATCH');
-    showToast('Contact updated', 'success');
+    showToast('Kişi güncellendi', 'success');
     loadContacts(AS.contactsPage);
   } catch {
-    showToast('Failed to update contact', 'error');
+    showToast('Kişi güncellenemedi', 'error');
   }
 };
 
@@ -210,9 +210,9 @@ window.toggleArchive = async function (contactId) {
   const AS = window.AdminState;
   try {
     await apiFetch(`/crm/contacts/${contactId}/archive`, 'PATCH');
-    showToast('Contact updated', 'success');
+    showToast('Kişi güncellendi', 'success');
     loadContacts(AS.contactsPage);
   } catch {
-    showToast('Failed to update contact', 'error');
+    showToast('Kişi güncellenemedi', 'error');
   }
 };

@@ -20,7 +20,7 @@ async function loadDashboardData() {
       const el = document.getElementById('contacts-delta');
       if (el) {
         el.className = `text-xs mt-1 ${diff >= 0 ? 'text-green-600' : 'text-red-500'}`;
-        el.textContent = `${diff >= 0 ? '+' : ''}${diff} vs yesterday`;
+        el.textContent = `${diff >= 0 ? '+' : ''}${diff} dünkünden`;
         el.classList.remove('hidden');
       }
     }
@@ -30,15 +30,15 @@ async function loadDashboardData() {
       const el = document.getElementById('messages-delta');
       if (el) {
         el.className = `text-xs mt-1 ${diff >= 0 ? 'text-green-600' : 'text-red-500'}`;
-        el.textContent = `${diff >= 0 ? '+' : ''}${diff} vs yesterday`;
+        el.textContent = `${diff >= 0 ? '+' : ''}${diff} dünkünden`;
         el.classList.remove('hidden');
       }
     }
 
-    const banner = document.getElementById('health-banner');
+    const banner= document.getElementById('health-banner');
     const bannerText = document.getElementById('health-banner-text');
     if (banner && analytics?.failedCampaigns?.length) {
-      bannerText.textContent = `${analytics.failedCampaigns.length} campaign(s) failed in the last 7 days`;
+      bannerText.textContent = `Son 7 günde ${analytics.failedCampaigns.length} kampanya başarısız oldu`;
       banner.classList.remove('hidden');
     } else if (banner) {
       banner.classList.add('hidden');
@@ -57,7 +57,7 @@ async function loadDashboardData() {
           <span class="text-xs text-gray-500 w-8 text-right shrink-0">${c.count}</span>
         </div>`).join('');
     } else if (cmdWidget) {
-      cmdWidget.innerHTML = '<p class="text-xs text-gray-400">No commands used yet</p>';
+      cmdWidget.innerHTML = '<p class="text-xs text-gray-400">Henüz komut kullanılmadı</p>';
     }
 
     const auditWidget = document.getElementById('recent-audit-widget');
@@ -69,7 +69,7 @@ async function loadDashboardData() {
           <span class="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">${escHtml(a.action)}</span>
         </div>`).join('');
     } else if (auditWidget) {
-      auditWidget.innerHTML = '<p class="text-xs text-gray-400">No recent activity</p>';
+      auditWidget.innerHTML = '<p class="text-xs text-gray-400">Son etkinlik yok</p>';
     }
 
     renderRecentContacts(recentData.data);
@@ -82,7 +82,7 @@ function renderRecentContacts(contacts) {
   const tbody = document.getElementById('recent-contacts');
   tbody.innerHTML = '';
   if (!contacts || !contacts.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">No contacts yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-400">Henüz kişi yok</td></tr>`;
     return;
   }
   contacts.forEach(c => {
@@ -102,13 +102,23 @@ function renderRecentContacts(contacts) {
 async function loadAnalytics() {
   try {
     const data = await apiFetch('/crm/analytics');
-    renderCharts(data);
-  } catch {
-    showToast('Failed to load analytics', 'error');
+    try {
+      renderCharts(data);
+    } catch (err) {
+      console.error('Analytics render error:', err);
+      showToast('Analitik veriler alindi fakat grafikler cizilemedi', 'warning');
+    }
+  } catch (err) {
+    console.error('Analytics API error:', err);
+    showToast('Analitik veriler yüklenemedi', 'error');
   }
 }
 
 function renderCharts(data) {
+  if (typeof Chart === 'undefined') {
+    throw new Error('Chart is not available');
+  }
+
   const AS = window.AdminState;
 
   const ctxContacts = document.getElementById('contacts-chart')?.getContext('2d');
@@ -119,7 +129,7 @@ function renderCharts(data) {
       data: {
         labels: (data.contactsOverTime || []).map(d => d.date),
         datasets: [{
-          label: 'New Contacts',
+          label: 'Yeni Kişiler',
           data: (data.contactsOverTime || []).map(d => d.count),
           borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.08)',
           tension: 0.4, fill: true, pointRadius: 3,
@@ -136,7 +146,7 @@ function renderCharts(data) {
     AS.analyticsCharts.language = new Chart(ctxLang, {
       type: 'doughnut',
       data: {
-        labels: ['English', 'French', 'Other'],
+        labels: ['İngilizce', 'Fransızca', 'Diğer'],
         datasets: [{ data: [dist.en || 0, dist.fr || 0, dist.other || 0], backgroundColor: ['#4ade80', '#818cf8', '#94a3b8'] }]
       },
       options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
@@ -150,10 +160,10 @@ function renderCharts(data) {
     AS.analyticsCharts.campaigns = new Chart(ctxCamp, {
       type: 'bar',
       data: {
-        labels: delivery.map(c => c.name),
+        labels: delivery.map(c => c.name || 'Unnamed Campaign'),
         datasets: [
-          { label: 'Sent',   data: delivery.map(c => c.sentCount   || 0), backgroundColor: '#4ade80' },
-          { label: 'Failed', data: delivery.map(c => c.failedCount || 0), backgroundColor: '#f87171' },
+          { label: 'Gönderildi',   data: delivery.map(c => c.sentCount   || 0), backgroundColor: '#4ade80' },
+          { label: 'Başarısız', data: delivery.map(c => c.failedCount || 0), backgroundColor: '#f87171' },
         ]
       },
       options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }

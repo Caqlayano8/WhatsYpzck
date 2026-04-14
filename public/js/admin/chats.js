@@ -9,7 +9,7 @@ async function loadChats() {
     updateChatsBadge();
     startInboxStream();
   } catch {
-    showToast('Failed to load chats', 'error');
+    showToast('Sohbetler yuklenemedi', 'error');
   }
 }
 
@@ -22,12 +22,12 @@ window.handleChatsSearch = function (q) {
   AS.chatsSearchTimer = setTimeout(async () => {
     setChatsMode(true, q);
     const el = document.getElementById('chats-list');
-    if (el) el.innerHTML = '<p class="text-xs text-gray-400 text-center pt-6 px-4 animate-pulse">Searching…</p>';
+    if (el) el.innerHTML = '<p class="text-xs text-gray-400 text-center pt-6 px-4 animate-pulse">Araniyor...</p>';
     try {
       const threads = await apiFetch(`/crm/conversations/search?q=${encodeURIComponent(q)}`);
       renderChatList(threads, true);
     } catch {
-      showToast('Search failed', 'error');
+      showToast('Arama basarisiz oldu', 'error');
     }
   }, 350);
 };
@@ -44,7 +44,7 @@ function setChatsMode(isSearch, q) {
   AS.chatsSearchMode = isSearch;
   const label = document.getElementById('chats-mode-label');
   if (!label) return;
-  label.textContent = isSearch ? (q ? `"${q}"` : 'Search') : '';
+  label.textContent = isSearch ? (q ? `"${q}"` : 'Arama') : '';
 }
 
 function renderChatList(list, isSearchMode) {
@@ -52,7 +52,7 @@ function renderChatList(list, isSearchMode) {
   const el = document.getElementById('chats-list');
   if (!el) return;
   if (!list.length) {
-    el.innerHTML = `<p class="text-xs text-gray-400 text-center pt-10 px-4">${isSearchMode ? 'No results found' : 'No conversations yet'}</p>`;
+    el.innerHTML = `<p class="text-xs text-gray-400 text-center pt-10 px-4">${isSearchMode ? 'Sonuc bulunamadi' : 'Henuz konusma yok'}</p>`;
     return;
   }
   el.innerHTML = '';
@@ -83,7 +83,7 @@ function renderChatList(list, isSearchMode) {
         <div class="flex items-center justify-between gap-1 mt-0.5">
           <p class="text-xs text-gray-500 truncate">${escHtml(preview)}</p>
           ${!isSearchMode && (item.unread > 0) ? `<div class="unread-dot flex-shrink-0">${item.unread}</div>` : ''}
-          ${isSearchMode ? `<span class="text-xs text-indigo-400 flex-shrink-0">${item.matchCount} msg</span>` : ''}
+          ${isSearchMode ? `<span class="text-xs text-indigo-400 flex-shrink-0">${item.matchCount} mesaj</span>` : ''}
         </div>
       </div>`;
     el.appendChild(div);
@@ -105,7 +105,7 @@ window.openConversation = async function (phone, contact = null) {
       if (d.dataset.phone === phone) d.querySelector('.unread-dot')?.remove();
     });
   } catch {
-    showToast('Failed to load messages', 'error');
+    showToast('Mesajlar yuklenemedi', 'error');
   }
 };
 
@@ -140,13 +140,13 @@ window.sendReply = async function () {
   input.value = '';
   input.style.height = 'auto';
   try {
-    const msg = await apiFetch(`/crm/inbox/${encodeURIComponent(AS.currentInboxPhone)}/reply`, 'POST', { message });
-    appendBubble(msg, 'chat-messages');
+    const mesaj = await apiFetch(`/crm/inbox/${encodeURIComponent(AS.currentInboxPhone)}/reply`, 'POST', { message });
+    appendBubble(mesaj, 'chat-messages');
     const conv = AS.inboxConversations.find(c => c.phoneNumber === AS.currentInboxPhone);
-    if (conv) { conv.lastMessage = msg.body; conv.lastTimestamp = msg.timestamp; }
+    if (conv) { conv.lastMessage = mesaj.body; conv.lastTimestamp = mesaj.timestamp; }
     if (!AS.chatsSearchMode) renderChatList(AS.inboxConversations, false);
   } catch {
-    showToast('Failed to send reply', 'error');
+    showToast('Yanit gonderilemedi', 'error');
   }
 };
 
@@ -157,19 +157,19 @@ function startInboxStream() {
   AS.inboxEventSource = new EventSource(`/crm/inbox/stream?token=${encodeURIComponent(token)}`);
   AS.inboxEventSource.onmessage = e => {
     try {
-      const msg = JSON.parse(e.data);
-      const existing = AS.inboxConversations.find(c => c.phoneNumber === msg.phoneNumber);
+      const mesaj = JSON.parse(e.data);
+      const existing = AS.inboxConversations.find(c => c.phoneNumber === mesaj.phoneNumber);
       if (existing) {
-        existing.lastMessage = msg.body;
-        existing.lastTimestamp = msg.timestamp;
-        if (msg.direction === 'in' && msg.phoneNumber !== AS.currentInboxPhone)
+        existing.lastMessage = mesaj.body;
+        existing.lastTimestamp = mesaj.timestamp;
+        if (mesaj.direction === 'in' && mesaj.phoneNumber !== AS.currentInboxPhone)
           existing.unread = (existing.unread || 0) + 1;
-      } else if (msg.direction === 'in') {
-        AS.inboxConversations.unshift({ phoneNumber: msg.phoneNumber, lastMessage: msg.body, lastTimestamp: msg.timestamp, unread: 1, contact: null });
+      } else if (mesaj.direction === 'in') {
+        AS.inboxConversations.unshift({ phoneNumber: mesaj.phoneNumber, lastMessage: mesaj.body, lastTimestamp: mesaj.timestamp, unread: 1, contact: null });
       }
       if (!AS.chatsSearchMode) renderChatList(AS.inboxConversations, false);
       updateChatsBadge();
-      if (msg.phoneNumber === AS.currentInboxPhone) appendBubble(msg, 'chat-messages');
+      if (mesaj.phoneNumber === AS.currentInboxPhone) appendBubble(mesaj, 'chat-messages');
     } catch (_) {}
   };
 }

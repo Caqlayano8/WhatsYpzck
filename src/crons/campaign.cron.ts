@@ -37,21 +37,38 @@ export async function checkScheduledMessages(botManager: BotManager) {
         });
         for (const msg of pending) {
             try {
-                const formattedNumber = msg.phoneNumber.includes('@')
-                    ? msg.phoneNumber
-                    : `${msg.phoneNumber}@c.us`;
-                await botManager.client.sendMessage(formattedNumber, msg.message);
+                const recipientPhones = msg.recipientType === 'group'
+                    ? (msg.recipientPhones || []).filter(Boolean)
+                    : [msg.phoneNumber].filter(Boolean) as string[];
+
+                if (!recipientPhones.length) {
+                    throw new Error('No recipients found for scheduled message');
+                }
+
+                for (const recipientPhone of recipientPhones) {
+                    const formattedNumber = recipientPhone.includes('@')
+                        ? recipientPhone
+                        : `${recipientPhone}@c.us`;
+                    await botManager.client.sendMessage(formattedNumber, msg.message);
+                }
+
                 msg.status = 'sent';
                 msg.sentAt = new Date();
                 await msg.save();
-                logger.info(`Scheduled message sent to ${msg.phoneNumber}`);
-                fireEvent('scheduled.sent', { phoneNumber: msg.phoneNumber }).catch(() => {});
+                logger.info(`Scheduled message sent to ${msg.groupName || msg.phoneNumber}`);
+                fireEvent('scheduled.sent', {
+                    phoneNumber: msg.phoneNumber || msg.groupName,
+                    recipientCount: recipientPhones.length
+                }).catch(() => {});
             } catch (error) {
-                logger.error(`Failed to send scheduled message to ${msg.phoneNumber}:`, error);
+                logger.error(`Failed to send scheduled message to ${msg.groupName || msg.phoneNumber}:`, error);
                 msg.status = 'failed';
                 msg.error = (error as any).message;
                 await msg.save();
-                fireEvent('scheduled.failed', { phoneNumber: msg.phoneNumber, error: (error as any).message }).catch(() => {});
+                fireEvent('scheduled.failed', {
+                    phoneNumber: msg.phoneNumber || msg.groupName,
+                    error: (error as any).message
+                }).catch(() => {});
             }
         }
     } catch (error) {

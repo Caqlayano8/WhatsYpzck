@@ -33,6 +33,10 @@ const TTS_MODEL_DIR = path.join(TTS_DIR, TTS_MODEL_NAME);
  * Sets process.env vars so speech-to-text.util and text-to-speech.util pick them up automatically.
  */
 export async function initializeSherpaModels(): Promise<void> {
+    if ((process.env.SKIP_SHERPA_MODELS ?? '').toLowerCase() === 'true') {
+        logger.info('SKIP_SHERPA_MODELS=true — sherpa-onnx model initialization skipped.');
+        return;
+    }
     try {
         await ensureAsr();
         await ensureTts();
