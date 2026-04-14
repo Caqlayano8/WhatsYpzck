@@ -45,6 +45,8 @@ class EnvConfig {
     static LICENSE_FILE_PATH = process.env.LICENSE_FILE_PATH;
     static LICENSE_PUBLIC_KEY_PATH = process.env.LICENSE_PUBLIC_KEY_PATH;
     static BOT_AUTO_START = process.env.BOT_AUTO_START;
+    static CONVERSATION_WARNING_TIMEOUT_MS = process.env.CONVERSATION_WARNING_TIMEOUT_MS;
+    static CONVERSATION_END_TIMEOUT_MS = process.env.CONVERSATION_END_TIMEOUT_MS;
 
     static validate() {
 

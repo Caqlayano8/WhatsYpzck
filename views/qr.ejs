@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>WhatsYpzck - QR Kod</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f7f7f7; font-family: Arial, sans-serif; }
+        .qr-box { background: #fff; padding: 32px 24px; border-radius: 16px; box-shadow: 0 2px 16px rgba(0,0,0,0.08); margin-bottom: 24px; }
+        .info { color: #333; margin-bottom: 16px; font-size: 1.1em; }
+        .qr-code { font-size: 2em; letter-spacing: 2px; }
+        .footer { color: #888; font-size: 0.95em; margin-top: 32px; }
+    </style>
+</head>
+<body>
+    <div class="qr-box">
+        <div class="info">Lütfen WhatsApp oturumu başlatmak için aşağıdaki QR kodunu WhatsApp uygulamanızdan tarayın.</div>
+        <% if (qrCodeData && qrCodeData.length > 0) { %>
+            <div class="qr-code">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?data=<%= encodeURIComponent(qrCodeData) %>&amp;size=250x250" alt="QR Kod" />
+            </div>
+        <% } else { %>
+            <div class="info">QR kodu henüz hazır değil. Lütfen sayfayı yenileyin.</div>
+        <% } %>
+    </div>
+    <div class="footer">WhatsYpzck &copy; 2026</div>
+</body>
+</html>

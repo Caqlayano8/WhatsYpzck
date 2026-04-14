@@ -138,6 +138,9 @@ export class BotManager {
     private readonly aiHybridTriggerQueue = Math.max(0, Number(process.env.AI_HYBRID_TRIGGER_QUEUE || 1));
     private aiReplyCache = new Map<string, { reply: string; expiresAt: number }>();
     private readonly aiReplyCacheTtlMs = Math.max(0, Number(process.env.AI_REPLY_CACHE_TTL_MS || 45000));
+    private readonly conversationWarningTimeoutMs = Math.max(1000, Number(process.env.CONVERSATION_WARNING_TIMEOUT_MS || 60000));
+    private readonly conversationEndTimeoutMs = Math.max(this.conversationWarningTimeoutMs + 1000, Number(process.env.CONVERSATION_END_TIMEOUT_MS || 120000));
+    private conversationIdleTimers = new Map<string, { warningTimer: NodeJS.Timeout; endTimer: NodeJS.Timeout }>();
 
     private async runInPhoneQueue<T>(phoneNumber: string, task: () => Promise<T>): Promise<T> {
         const prev = this.perPhoneQueue.get(phoneNumber) || Promise.resolve();
@@ -1145,6 +1148,80 @@ export class BotManager {
         await message.reply(text);
     }
 
+    private async sendMessageToPhone(phoneNumber: string, text: string): Promise<void> {
+        const chatId = this.toWhatsAppChatId(phoneNumber);
+        if (!chatId || !this.client || typeof this.client.sendMessage !== "function") return;
+        try {
+            await this.client.sendMessage(chatId, text);
+        } catch (error) {
+            logger.warn(`Inactivity message could not be sent to ${phoneNumber}: ${error}`);
+        }
+    }
+
+    private clearConversationIdleTimer(phoneNumber: string): void {
+        const timers = this.conversationIdleTimers.get(phoneNumber);
+        if (timers) {
+            clearTimeout(timers.warningTimer);
+            clearTimeout(timers.endTimer);
+            this.conversationIdleTimers.delete(phoneNumber);
+        }
+    }
+
+    private clearAllConversationIdleTimers(): void {
+        for (const phone of this.conversationIdleTimers.keys()) {
+            this.clearConversationIdleTimer(phone);
+        }
+    }
+
+    private resetConversationIdleTimer(phoneNumber: string): void {
+        if (!phoneNumber) return;
+
+        const canonicalPhone = normalizeConversationPhone(phoneNumber) || phoneNumber;
+        this.clearConversationIdleTimer(phoneNumber);
+        if (canonicalPhone !== phoneNumber) {
+            this.clearConversationIdleTimer(canonicalPhone);
+        }
+
+        const warningTimer = setTimeout(() => {
+            void this.sendMessageToPhone(canonicalPhone, "2 dakika boyunca cevap vermediğiniz takdirde konuşma sonlandırılacaktır.");
+        }, this.conversationWarningTimeoutMs);
+
+        const endTimer = setTimeout(() => {
+            void this.endConversationByInactivity(canonicalPhone);
+        }, this.conversationEndTimeoutMs);
+
+        this.conversationIdleTimers.set(canonicalPhone, { warningTimer, endTimer });
+    }
+
+    private async endConversationByInactivity(phoneNumber: string): Promise<void> {
+        const canonicalPhone = normalizeConversationPhone(phoneNumber) || phoneNumber;
+        const phoneVariants = canonicalPhone === phoneNumber ? [phoneNumber] : [phoneNumber, canonicalPhone];
+
+        for (const phone of phoneVariants) {
+            this.clearConversationIdleTimer(phone);
+            this.aiConversationState.delete(phone);
+            this.pendingMediaUrls.delete(phone);
+        }
+
+        try {
+            await FlowSessionModel.updateMany(
+                { phoneNumber: { $in: phoneVariants }, status: 'active' },
+                {
+                    $set: {
+                        status: 'timed_out',
+                        waitingForReply: false,
+                        pendingVariable: '',
+                        lastActivityAt: new Date()
+                    }
+                }
+            );
+        } catch (error) {
+            logger.warn(`Flow session timeout update failed for ${canonicalPhone}: ${error}`);
+        }
+
+        await this.sendMessageToPhone(canonicalPhone, "Uzun süre işlem yapmadığınız için görüşmeniz sonlandırılmıştır.");
+    }
+
     private isKvkkAccepted(phoneNumber: string): boolean {
         return this.kvkkAcceptedPhones.has(phoneNumber) ||
             !!(this.aiConversationState.get(phoneNumber)?.kvkkAccepted);
@@ -1703,6 +1780,7 @@ export class BotManager {
         if (!flow) return false;
 
         if (this.isConversationEndIntent(text)) {
+            this.clearConversationIdleTimer(phoneNumber);
             aiState.closureFlow = undefined;
             await this.safeReply(message, this.buildConversationEndedReply());
             return true;
@@ -2875,6 +2953,7 @@ export class BotManager {
         this.qrData.qrScanned = false;
         this.qrData.authenticated = false;
         this.qrData.qrCodeData = "";
+        this.clearAllConversationIdleTimers();
 
         setTimeout(() => {
             logger.info('Attempting to reconnect...');
@@ -2978,6 +3057,10 @@ export class BotManager {
 
             if (message.from === this.client.info.wid._serialized || message.isStatus) {
                 return;
+            }
+
+            if (!user.isMe) {
+                this.resetConversationIdleTimer(user.number);
             }
 
             // KVKK consent check
@@ -3746,6 +3829,7 @@ export class BotManager {
                 if (chat) await chat.sendStateTyping();
 
                 if (this.isConversationEndIntent(text)) {
+                    this.clearConversationIdleTimer(phoneNumber);
                     aiState.menuStep = undefined;
                     aiState.faultCategoryStep = undefined;
                     aiState.incidentFlow = undefined;
