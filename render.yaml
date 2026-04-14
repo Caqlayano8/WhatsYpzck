@@ -14,6 +14,8 @@ services:
         value: Europe/Istanbul
       - key: PUPPETEER_EXECUTABLE_PATH
         value: /usr/bin/chromium
+      - key: BOT_AUTO_START
+        value: "false"
       - key: MONGODB_URI
         sync: false
       - key: JWT_SECRET

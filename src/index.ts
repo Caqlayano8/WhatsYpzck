@@ -155,7 +155,12 @@ async function bootstrap() {
         logger.info(`Imza: ${AppConfig.instance.getBotAuthor()}`);
         logger.info(`Server running on port ${port}`);
         logger.info(`Access: http://localhost:${port}/`);
-        botManager.initialize();
+        const shouldAutoStartBot = (EnvConfig.BOT_AUTO_START ?? 'true').toLowerCase() !== 'false';
+        if (shouldAutoStartBot) {
+            botManager.initialize();
+        } else {
+            logger.warn('BOT_AUTO_START=false -> WhatsApp bot auto-start skipped to reduce memory usage.');
+        }
     });
 }
 
