@@ -188,6 +188,8 @@
   </div>
 
   <script>
+    const PANEL_BASE = window.location.pathname.startsWith('/technician') ? '/technician' : '/panel';
+
     document.getElementById('toggle-pw').addEventListener('click', function () {
       const pw = document.getElementById('password');
       const icon = this.querySelector('i');
@@ -216,7 +218,7 @@
     // Mevcut token varsa panele yönlendir
     (function checkExistingToken() {
       const token = localStorage.getItem('token');
-      if (token) window.location.href = '/panel';
+      if (token) window.location.href = PANEL_BASE;
     })();
 
     // ── Adım 1: Kullanıcı adı + şifre ───────────────────────
@@ -260,7 +262,11 @@
           }
         } else {
           localStorage.setItem('token', data.token);
-          window.location.href = '/panel';
+            if (data?.user?.role === 'field_tech') {
+              window.location.href = '/technician';
+            } else {
+              window.location.href = '/panel';
+            }
         }
       } catch (error) {
         showError(error.message);
@@ -290,7 +296,11 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Doğrulama başarısız.');
         localStorage.setItem('token', data.token);
-        window.location.href = '/panel';
+          if (data?.user?.role === 'field_tech') {
+            window.location.href = '/technician';
+          } else {
+            window.location.href = '/panel';
+          }
       } catch (error) {
         errEl.textContent = error.message;
         errEl.classList.remove('hidden');

@@ -106,12 +106,23 @@ function buildBubble(m) {
   const rowCls    = isOut ? 'msg-row-out' : 'msg-row-in';
   const bubbleCls = isOut ? 'msg-bubble msg-bubble-out' : 'msg-bubble msg-bubble-in';
   const timeColor = isOut ? '#5a7a5c' : '#999';
+  const mediaUrl = (typeof resolveMediaUrl === 'function') ? resolveMediaUrl(m.mediaUrl) : (m.mediaUrl || '');
+  const isImageMessage = Boolean(mediaUrl) && (
+    m.type === 'image'
+    || /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl)
+    || String(m.body || '').trim() === '[Empty message]'
+  );
 
   let contentHtml = '';
-  if (m.type === 'image' && m.mediaUrl) {
-    contentHtml = `<img src="${escHtml(m.mediaUrl)}" alt="Fotoğraf" style="max-width:220px;border-radius:8px;cursor:pointer;display:block;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`;
+  if (isImageMessage) {
+    contentHtml = `<img src="${escHtml(mediaUrl)}" alt="Fotograf" style="max-width:220px;border-radius:8px;cursor:pointer;display:block;" onclick="window.open(this.src,'_blank')" onerror="this.insertAdjacentHTML('afterend','<a href=&quot;${escHtml(mediaUrl)}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot; style=&quot;color:#2563eb;text-decoration:underline;&quot;>Gorseli ac</a>');this.remove();">`;
     if (m.body && m.body !== '[Empty message]') {
       contentHtml += `<div style="margin-top:4px;">${escHtml(m.body)}</div>`;
+    }
+  } else if (mediaUrl) {
+    contentHtml = `<a href="${escHtml(mediaUrl)}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;display:inline-block;margin-bottom:4px;">Ek dosyayi ac</a>`;
+    if (m.body && m.body !== '[Empty message]') {
+      contentHtml += `<div>${escHtml(m.body)}</div>`;
     }
   } else {
     contentHtml = escHtml(m.body);

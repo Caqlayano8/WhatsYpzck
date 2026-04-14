@@ -20,6 +20,7 @@ import { CampaignModel } from "./crm/models/campaign.model";
 import { messageEmitter } from "./utils/events/message-emitter.util";
 import { AutoReplyModel } from "./crm/models/auto-reply.model";
 import { IncidentModel } from "./crm/models/incident.model";
+import { UserModel } from "./crm/models/user.model";
 import { fireEvent } from "./utils/events/fire-event.util";
 import { claudeCompletion } from "./utils/ai/claude.util";
 import { FlowModel } from "./crm/models/flow.model";
@@ -91,7 +92,37 @@ export class BotManager {
                 customerPhone: string;
                 incidentId: string;
             };
+            recentMatches?: Array<{
+                incidentId: string;
+                meterNo?: string;
+                status?: string;
+                updatedAt?: Date;
+                createdAt?: Date;
+            }>;
         };
+        closureFlow?: {
+            active: boolean;
+            awaiting: "incidentId" | "confirm";
+            requestedReason?: string;
+            selectedIncidentId?: string;
+            candidates: Array<{
+                incidentId: string;
+                status?: string;
+                meterNo?: string;
+                address?: string;
+                customerName?: string;
+                customerPhone?: string;
+                customerEmail?: string;
+                updatedAt?: Date;
+                createdAt?: Date;
+            }>;
+        };
+    }>();
+    private technicianUpdateState = new Map<string, {
+        incidentId: string;
+        status?: 'INCELEMEDE' | 'ISLEME_ALINDI' | 'COZUMLENDI' | 'KAPATILDI';
+        note?: string;
+        awaiting: 'status' | 'note' | 'media';
     }>();
     private prefix = AppConfig.instance.getBotPrefix();
     private processedMessageIds = new Map<string, number>();
@@ -496,6 +527,30 @@ export class BotManager {
         return "Lutfen WhatsApp konum paylasma ozelligi ile konumunuzu gonderin.";
     }
 
+    private async resolveLocationAddress(lat: number, lng: number): Promise<string | null> {
+        try {
+            const response = await axios.get("https://nominatim.openstreetmap.org/reverse", {
+                params: {
+                    format: "jsonv2",
+                    lat,
+                    lon: lng,
+                    zoom: 18,
+                    addressdetails: 1
+                },
+                headers: {
+                    "User-Agent": "WhatsYpzck/2.0"
+                },
+                timeout: 7000
+            });
+
+            const displayName = String(response?.data?.display_name || "").trim();
+            return displayName || null;
+        } catch (error) {
+            logger.warn("Konum adresi cozumlenemedi:", error);
+            return null;
+        }
+    }
+
     private buildIncidentSummaryText(data: { issueDescription: string; customerName: string; customerPhone: string; address: string; meterNo: string; customerEmail: string }): string {
         return [
             "Bilgileri toplu olarak teyit eder misiniz?",
@@ -528,6 +583,55 @@ export class BotManager {
     private parseIncidentStatusIntent(text: string): boolean {
         const t = String(text || "").toLowerCase();
         return /ar[ıi]za.*durum|durum.*ar[ıi]za|ar[ıi]za\s*(kayd[ıi]|no|numara).*sorgu|ar[ıi]za\s*(sorgula|sorgulama)|kay[ıi]t\s*no.*(durum|sorgu)|ar[ıi]zam[ıi]n\s*durumu/.test(t);
+    }
+
+    private isConversationEndIntent(text: string): boolean {
+        const t = String(text || "")
+            .trim()
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ö/g, "o")
+            .replace(/ş/g, "s")
+            .replace(/ç/g, "c");
+
+        return t.includes('sonra gorusuruz')
+            || t.includes('simdi bilgi paylasmak istemiyorum')
+            || t.includes('suan bilgi paylasmak istemiyorum')
+            || t.includes('musait degilim')
+            || t.includes('müsait değilim')
+            || t.includes('vazgectim')
+            || t.includes('vazgectim sonra')
+            || t.includes('simdilik kalsin');
+    }
+
+    private parseCustomerIncidentClosureIntent(text: string): boolean {
+        const t = String(text || "")
+            .trim()
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ö/g, "o")
+            .replace(/ş/g, "s")
+            .replace(/ç/g, "c");
+
+        return /sorunum duzeldi|problem kalmadi|yanlis ariza talebi|yanlis talep|talebi kapat|kaydi kapat|arizayi kapat|talebi iptal|kaydi iptal|ariza kaydini iptal|artik gerek kalmadi|gerek kalmadi|mudahale edilmeden kapat|\biptal\b|iptal etmek istiyorum|talep numarasi.*iptal|talep.*iptal olsun|ariza.*iptal olsun/.test(t);
+    }
+
+    private isCustomerClosureApproval(text: string): boolean {
+        const t = String(text || "")
+            .trim()
+            .toLowerCase()
+            .replace(/ı/g, "i")
+            .replace(/ğ/g, "g")
+            .replace(/ü/g, "u")
+            .replace(/ö/g, "o")
+            .replace(/ş/g, "s")
+            .replace(/ç/g, "c");
+
+        return /^(kabul ediyorum|onayliyorum|onay veriyorum)(\b|$)/.test(t);
     }
 
     private parseDateTimeIntent(text: string): boolean {
@@ -584,6 +688,442 @@ export class BotManager {
         return map[String(status || "").toUpperCase()] || "Bilinmiyor";
     }
 
+    private buildConversationEndedReply(): string {
+        return [
+            'Paylasiminiz icin tesekkur ederiz.',
+            'Istediginiz uzerine mevcut konusmayi burada sonlandiriyorum.',
+            'Ihtiyaciniz oldugunda yeniden yazabilirsiniz. Gorusmek uzere.'
+        ].join('\n');
+    }
+
+    private async buildIncidentClosureNoOpenMessage(): Promise<string> {
+        const fallback = 'Uzerinize kayitli kapatilabilecek acik talep bulunamadi. Dilerseniz mevcut talep numaranizi paylasabilirsiniz.';
+        return this.getBotMessageTemplate('incidentClosureNoOpenMessage', fallback);
+    }
+
+    private async buildIncidentClosureSelectionMessage(records: any[]): Promise<string> {
+        const items = Array.isArray(records) ? records.slice(0, 5) : [];
+        if (!items.length) {
+            return this.buildIncidentClosureNoOpenMessage();
+        }
+
+        const incidentList = items.map((record, index) => [
+            `${index + 1}. Talep No: ${String(record?.incidentId || 'Bilinmiyor')}`,
+            `Durum: ${this.incidentStatusText(String(record?.status || ''))}`,
+            `Tesisat/Abone No: ${String(record?.meterNo || 'Bilinmiyor')}`,
+            `Adres: ${String(record?.address || 'Bilinmiyor')}`,
+        ].join('\n')).join('\n\n');
+
+        const fallback = '*TALEP KAPATMA SECIMI*\nKapatmak istediginiz talep numarasini asagidaki listeden seciniz:\n\n{{incidentList}}\n\nLutfen kapatmak istediginiz talep numarasini yaziniz.';
+        const template = await this.getBotMessageTemplate('incidentClosureSelectionMessage', fallback);
+        return this.applyTemplateVariables(template, { incidentList });
+    }
+
+    private async buildIncidentClosureConfirmMessage(record: any): Promise<string> {
+        const fallback = "Talep No: {{incidentId}}\nDurum: {{statusText}}\nTalebiniz en kisa sure icerisinde sonlandirilacaktir.\nOnayliyorsaniz lutfen sadece 'kabul ediyorum' yaziniz.";
+        const template = await this.getBotMessageTemplate('incidentClosureConfirmMessage', fallback);
+        return this.applyTemplateVariables(template, {
+            incidentId: String(record?.incidentId || 'Bilinmiyor'),
+            statusText: this.incidentStatusText(String(record?.status || '')),
+        });
+    }
+
+    private async buildIncidentClosureNeedApprovalMessage(): Promise<string> {
+        const fallback = "Devam etmek icin lutfen sadece 'kabul ediyorum' yaziniz. Vazgecmek isterseniz 'sonra gorusuruz' yazabilirsiniz.";
+        return this.getBotMessageTemplate('incidentClosureNeedApprovalMessage', fallback);
+    }
+
+    private async buildIncidentClosureSuccessMessage(incidentId: string): Promise<string> {
+        const fallback = 'Talep No: {{incidentId}}\nSizin isteginiz uzere talebiniz mudahale edilmeden kapatilmistir.\nBizi tercih ettiginiz icin tesekkur ederiz. Gorusmek uzere.';
+        const template = await this.getBotMessageTemplate('incidentClosureSuccessMessage', fallback);
+        return this.applyTemplateVariables(template, { incidentId: String(incidentId || 'Bilinmiyor') });
+    }
+
+    private async findCustomerClosableIncidents(phoneNumber: string, requestedText: string): Promise<any[]> {
+        const canonicalPhone = normalizeConversationPhone(phoneNumber) || this.normalizeTurkishPhone(phoneNumber) || phoneNumber;
+        const inlineIncidentId = this.normalizeIncidentId(requestedText);
+        const query: any = { status: { $ne: 'KAPATILDI' } };
+
+        if (inlineIncidentId) {
+            query.incidentId = inlineIncidentId;
+            query.$or = [
+                { customerPhone: canonicalPhone },
+                { sourcePhoneNumber: canonicalPhone },
+                { customerPhone: phoneNumber },
+                { sourcePhoneNumber: phoneNumber }
+            ];
+        } else {
+            query.$or = [
+                { customerPhone: canonicalPhone },
+                { sourcePhoneNumber: canonicalPhone },
+                { customerPhone: phoneNumber },
+                { sourcePhoneNumber: phoneNumber }
+            ];
+        }
+
+        return await IncidentModel.find(query)
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .limit(5)
+            .lean() as any[];
+    }
+
+    private async getIncidentEmailTargets(incident: any): Promise<string[]> {
+        const settings = await SettingsModel.findOne().lean() as any;
+        const configuredEmails = Array.isArray(settings?.incidentRouting?.emails)
+            ? settings.incidentRouting.emails.map((v: string) => String(v || '').trim()).filter(Boolean)
+            : [];
+        const envEmails = String(process.env.ARIZA_TEAM_EMAILS || '')
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean);
+        const adminUsers = await UserModel.find({ role: 'admin', isActive: true }).select('email').lean() as any[];
+        const technicianUserId = String(incident?.assignedTechnician?.userId || '');
+        const technician = technicianUserId
+            ? await UserModel.findById(technicianUserId).select('email').lean() as any
+            : null;
+
+        return Array.from(new Set([
+            ...configuredEmails,
+            ...envEmails,
+            ...adminUsers.map((user) => String(user?.email || '').trim()),
+            String(technician?.email || '').trim()
+        ].filter(Boolean)));
+    }
+
+    private async sendIncidentEmailWithFallback(
+        subject: string,
+        textBody: string,
+        recipients: string | string[],
+        attachment?: { filePath: string; fileName: string; contentType?: string }
+    ): Promise<boolean> {
+        const recipientList = Array.isArray(recipients)
+            ? recipients.map((value) => String(value || '').trim()).filter(Boolean)
+            : String(recipients || '').split(',').map((value) => value.trim()).filter(Boolean);
+        if (!recipientList.length) return false;
+
+        const settings = await SettingsModel.findOne().lean() as any;
+        const smtpDb = settings?.smtp || {};
+        const smtp = {
+            host: smtpDb.host || EnvConfig.SMTP_HOST,
+            port: smtpDb.port || Number(EnvConfig.SMTP_PORT || 587),
+            secure: typeof smtpDb.secure === 'boolean' ? smtpDb.secure : String(EnvConfig.SMTP_SECURE || 'false').toLowerCase() === 'true',
+            user: smtpDb.user || EnvConfig.SMTP_USER,
+            pass: smtpDb.pass || EnvConfig.SMTP_PASS,
+            fromName: smtpDb.fromName || EnvConfig.SMTP_FROM_NAME || 'WhatsYpzck',
+            fromEmail: smtpDb.fromEmail || EnvConfig.SMTP_FROM_EMAIL || ''
+        };
+
+        if (smtp?.host && smtp?.user && smtp?.pass) {
+            try {
+                const nodemailer = await import('nodemailer');
+                const transporter = nodemailer.default.createTransport({
+                    host: smtp.host,
+                    port: smtp.port || 587,
+                    secure: smtp.secure || false,
+                    auth: { user: smtp.user, pass: smtp.pass }
+                });
+
+                const from = smtp.fromEmail
+                    ? `"${smtp.fromName || 'WhatsYpzck'}" <${smtp.fromEmail}>`
+                    : smtp.user;
+
+                await transporter.sendMail({
+                    from,
+                    to: recipientList.join(','),
+                    subject,
+                    text: textBody,
+                    ...(attachment ? {
+                        attachments: [{
+                            filename: attachment.fileName,
+                            path: attachment.filePath,
+                            contentType: attachment.contentType || 'application/octet-stream'
+                        }]
+                    } : {})
+                });
+                return true;
+            } catch (smtpErr) {
+                logger.error('Ariza e-postasi SMTP ile gonderilemedi, Graph denenecek:', smtpErr);
+            }
+        }
+
+        try {
+            return await this.sendIncidentEmailViaGraph(subject, textBody, recipientList.join(','), attachment);
+        } catch (graphErr) {
+            logger.error('Ariza e-postasi Graph ile de gonderilemedi:', graphErr);
+            return false;
+        }
+    }
+
+    private async closeIncidentByCustomerRequest(incident: any, requestedReason: string): Promise<void> {
+        const settings = await SettingsModel.findOne().lean() as any;
+        const signatureName = String(settings?.botIdentity?.author || AppConfig.instance.getBotAuthor()).trim();
+        const closureNote = `[Musteri Talebi] Musteri tarafindan kendi istegiyle kapatildi. Gerekce: ${requestedReason || 'Sorun cozuldu / yanlis talep'}`;
+
+        incident.status = 'KAPATILDI';
+        incident.statusHistory = Array.isArray(incident.statusHistory) ? incident.statusHistory : [];
+        incident.statusHistory.push({
+            status: 'KAPATILDI',
+            note: closureNote,
+            at: new Date()
+        });
+        await incident.save();
+
+        const managerMessage = [
+            '*MUSTERI TALEBIYLE KAPATILDI*',
+            `Talep No: ${incident.incidentId}`,
+            `Musteri: ${incident.customerName || 'Bilinmiyor'}`,
+            `Telefon: ${incident.customerPhone || 'Bilinmiyor'}`,
+            `Durum: ${this.incidentStatusText('KAPATILDI')}`,
+            `Not: ${closureNote}`
+        ].join('\n');
+        await this.notifyManagersInstantly(managerMessage);
+
+        const technicianPhone = String(incident?.assignedTechnician?.phone || '').trim();
+        const technicianChatId = this.toWhatsAppChatId(technicianPhone);
+        if (technicianChatId) {
+            try {
+                await this.client.sendMessage(technicianChatId, managerMessage);
+            } catch (err) {
+                logger.warn('Teknisyene musteri kapatma bildirimi gonderilemedi:', err);
+            }
+        }
+
+        const emailTargets = await this.getIncidentEmailTargets(incident);
+        if (emailTargets.length) {
+            await this.sendIncidentEmailWithFallback(
+                `[Ariza Kapatildi] ${incident.incidentId} - Musteri Talebi`,
+                [
+                    'Musteri talebi dogrultusunda ariza kaydi kapatilmistir.',
+                    '',
+                    `Talep No: ${incident.incidentId}`,
+                    `Musteri: ${incident.customerName || 'Bilinmiyor'}`,
+                    `Telefon: ${incident.customerPhone || 'Bilinmiyor'}`,
+                    `Adres: ${incident.address || 'Bilinmiyor'}`,
+                    `Tesisat/Sayac No: ${incident.meterNo || 'Bilinmiyor'}`,
+                    `Not: ${closureNote}`,
+                    '',
+                    `Yetkili: ${signatureName}`
+                ].join('\n'),
+                emailTargets
+            );
+        }
+
+        if (this.isValidEmail(String(incident.customerEmail || ''))) {
+            await this.sendIncidentEmailWithFallback(
+                `Talebiniz Kapatilmistir - ${incident.incidentId}`,
+                [
+                    'Sayin Musterimiz,',
+                    '',
+                    `Sizin isteginiz uzere ${incident.incidentId} numarali talebiniz mudahale edilmeden kapatilmistir.`,
+                    'Anlayisiniz ve bizi tercih ettiginiz icin tesekkur ederiz.',
+                    'Ihtiyaciniz olursa bizimle yeniden iletisime gecebilirsiniz.',
+                    '',
+                    `Yetkili: ${signatureName}`
+                ].join('\n'),
+                String(incident.customerEmail || '').trim()
+            );
+        }
+
+        fireEvent('incident.status.updated', {
+            incidentId: String(incident.incidentId),
+            status: 'KAPATILDI',
+            statusLabel: this.incidentStatusText('KAPATILDI'),
+            note: closureNote,
+            customerName: String(incident.customerName || ''),
+            customerPhone: String(incident.customerPhone || ''),
+            customerEmail: String(incident.customerEmail || ''),
+            address: String(incident.address || ''),
+            meterNo: String(incident.meterNo || ''),
+            source: 'customer-whatsapp'
+        }).catch(() => {});
+    }
+
+    private normalizePhoneForMatch(value: string): string {
+        let digits = String(value || '').replace(/\D/g, '');
+        if (!digits) return '';
+        if (digits.startsWith('00')) digits = digits.slice(2);
+        if (digits.length === 11 && digits.startsWith('0')) {
+            digits = `90${digits.slice(1)}`;
+        } else if (digits.length === 10 && digits.startsWith('5')) {
+            digits = `90${digits}`;
+        }
+        return digits;
+    }
+
+    private parseTechnicianStatusCode(text: string): 'INCELEMEDE' | 'ISLEME_ALINDI' | 'COZUMLENDI' | 'KAPATILDI' | '' {
+        const t = String(text || '')
+            .trim()
+            .toUpperCase()
+            .replace(/İ/g, 'I')
+            .replace(/Ş/g, 'S')
+            .replace(/Ğ/g, 'G')
+            .replace(/Ü/g, 'U')
+            .replace(/Ö/g, 'O')
+            .replace(/Ç/g, 'C')
+            .replace(/\s+/g, '_');
+
+        const map: Record<string, 'INCELEMEDE' | 'ISLEME_ALINDI' | 'COZUMLENDI' | 'KAPATILDI'> = {
+            INCELEMEDE: 'INCELEMEDE',
+            ISLEME_ALINDI: 'ISLEME_ALINDI',
+            COZUMLENDI: 'COZUMLENDI',
+            KAPATILDI: 'KAPATILDI',
+            KAYIT_ALINDI: 'INCELEMEDE',
+            ALINDI: 'INCELEMEDE'
+        };
+        return map[t] || '';
+    }
+
+    private async findFieldTechnicianByPhone(rawPhone: string): Promise<any | null> {
+        const normalized = this.normalizePhoneForMatch(rawPhone);
+        if (!normalized) return null;
+
+        const techs = await UserModel.find({ role: 'field_tech', isActive: true }).select('_id username displayName phone').lean() as any[];
+        for (const tech of techs) {
+            const candidate = this.normalizePhoneForMatch(String(tech.phone || ''));
+            if (!candidate) continue;
+            if (candidate === normalized) return tech;
+            if (candidate.endsWith(normalized) || normalized.endsWith(candidate)) return tech;
+        }
+        return null;
+    }
+
+    private async getManagerWhatsAppTargets(): Promise<string[]> {
+        const settings = await SettingsModel.findOne().lean() as any;
+        const routingNumbers = Array.isArray(settings?.incidentRouting?.whatsappNumbers)
+            ? settings.incidentRouting.whatsappNumbers
+            : [];
+        const admins = await UserModel.find({ role: 'admin', isActive: true }).select('phone').lean() as any[];
+        return Array.from(new Set([
+            ...admins.map((u) => String(u.phone || '').trim()),
+            ...routingNumbers.map((v: string) => String(v || '').trim())
+        ].filter(Boolean)));
+    }
+
+    private async notifyManagersInstantly(text: string): Promise<number> {
+        const targets = await this.getManagerWhatsAppTargets();
+        let sent = 0;
+        for (const phone of targets) {
+            const chatId = this.toWhatsAppChatId(phone);
+            if (!chatId) continue;
+            try {
+                await this.client.sendMessage(chatId, text);
+                sent += 1;
+            } catch (_) { /* non-critical */ }
+        }
+        return sent;
+    }
+
+    private normalizeRoutingToken(value: string): string {
+        return String(value || '')
+            .toLocaleLowerCase('tr-TR')
+            .replace(/ı/g, 'i')
+            .replace(/ğ/g, 'g')
+            .replace(/ü/g, 'u')
+            .replace(/ş/g, 's')
+            .replace(/ö/g, 'o')
+            .replace(/ç/g, 'c')
+            .trim();
+    }
+
+    private collectTechnicianRoutingTokens(technician: any): string[] {
+        const routing = technician?.routing || {};
+        const values = [
+            routing.city,
+            routing.district,
+            ...(Array.isArray(routing.neighborhoods) ? routing.neighborhoods : []),
+            ...(Array.isArray(routing.streets) ? routing.streets : []),
+            ...(Array.isArray(routing.areaKeywords) ? routing.areaKeywords : [])
+        ];
+
+        const set = new Set<string>();
+        for (const value of values) {
+            const token = this.normalizeRoutingToken(String(value || ''));
+            if (token && token.length >= 2) set.add(token);
+        }
+        return Array.from(set);
+    }
+
+    private async autoAssignIncidentByArea(incident: any): Promise<void> {
+        const normalizedAddress = this.normalizeRoutingToken(String(incident?.address || ''));
+        if (!normalizedAddress) return;
+
+        const technicians = await UserModel.find({ role: 'field_tech', isActive: true })
+            .select('_id username displayName phone routing')
+            .lean() as any[];
+
+        let bestMatch: any | null = null;
+        let bestScore = 0;
+        let bestTokens: string[] = [];
+        for (const technician of technicians) {
+            const tokens = this.collectTechnicianRoutingTokens(technician);
+            if (!tokens.length) continue;
+            const matches = tokens.filter((token) => normalizedAddress.includes(token));
+            const score = matches.length;
+            if (score > bestScore && technician.phone) {
+                bestScore = score;
+                bestMatch = technician;
+                bestTokens = matches;
+            }
+        }
+
+        if (!bestMatch || bestScore <= 0) return;
+
+        incident.assignedTechnician = {
+            userId: String(bestMatch._id || ''),
+            username: String(bestMatch.username || ''),
+            displayName: String(bestMatch.displayName || bestMatch.username || ''),
+            phone: String(bestMatch.phone || ''),
+            assignedAt: new Date(),
+            assignedByUserId: 'system',
+            assignedByName: 'Sistem Otomatik Yonlendirme'
+        };
+        incident.assignment = {
+            method: 'auto-area',
+            matchKeywords: bestTokens
+        };
+        incident.statusHistory = Array.isArray(incident.statusHistory) ? incident.statusHistory : [];
+        incident.statusHistory.push({
+            status: incident.status || 'ALINDI',
+            note: `Otomatik atama: ${bestMatch.displayName || bestMatch.username}`,
+            at: new Date()
+        });
+        await incident.save();
+
+        const technicianChatId = this.toWhatsAppChatId(String(bestMatch.phone || ''));
+        const assignmentMessage = [
+            '*YENI GOREV ATAMASI*',
+            '',
+            `Ariza Kodu: ${incident.incidentId}`,
+            `Musteri: ${incident.customerName || 'Bilinmiyor'}`,
+            `Telefon: ${incident.customerPhone || 'Bilinmiyor'}`,
+            `Adres: ${incident.address || 'Bilinmiyor'}`,
+            `Sayac/Tesisat No: ${incident.meterNo || 'Bilinmiyor'}`,
+            '',
+            'Guncelleme adimi:',
+            '1) Ilk mesajda sadece ariza kodunu yazin.',
+            '2) Durum kodunu yazin: INCELEMEDE/ISLEME_ALINDI/COZUMLENDI/KAPATILDI',
+            '3) Aciklama notunu yazin.',
+            '4) Son adimda resim/video gonderebilirsiniz (KAPATILDI icin zorunlu).'
+        ].join('\n');
+
+        if (technicianChatId) {
+            try {
+                await this.client.sendMessage(technicianChatId, assignmentMessage);
+            } catch (_) {
+                // Non-critical: assignment stays on record even if message delivery fails.
+            }
+        }
+
+        const managerMessage = [
+            '*ANLIK ATAMA*',
+            `Kayit No: ${incident.incidentId}`,
+            `Teknisyen: ${bestMatch.displayName || bestMatch.username}`,
+            `Telefon: ${bestMatch.phone || '-'}`,
+            `Eslesen Alanlar: ${bestTokens.join(', ') || '-'}`
+        ].join('\n');
+        await this.notifyManagersInstantly(managerMessage);
+    }
+
     private async safeReply(message: Message, text: string): Promise<void> {
         try {
             if (this.client && typeof this.client.sendMessage === "function" && message?.from) {
@@ -623,8 +1163,30 @@ export class BotManager {
         return /^(kabul ediyorum|kabul|evet|onayliyorum)(\b|$)/.test(normalized);
     }
 
-    private buildKvkkMessage(): string {
-        return [
+    private async getBotMessageTemplate(
+        key: 'kvkkMessage' | 'welcomeMenuMessage' | 'mainMenuMessage' | 'faultCategoryMessage' | 'incidentStatusStartMessage' | 'incidentStatusResultTemplate' | 'incidentClosureNoOpenMessage' | 'incidentClosureSelectionMessage' | 'incidentClosureConfirmMessage' | 'incidentClosureNeedApprovalMessage' | 'incidentClosureSuccessMessage' | 'chatMediaPreviewText',
+        fallback: string
+    ): Promise<string> {
+        try {
+            const settings = await SettingsModel.findOne().select('botMessageTemplates').lean() as any;
+            const value = settings?.botMessageTemplates?.[key];
+            if (typeof value === 'string' && value.trim()) {
+                return value.trim();
+            }
+        } catch (_) {
+            // Use fallback on any read error
+        }
+        return fallback;
+    }
+
+    private applyTemplateVariables(template: string, variables: Record<string, string>): string {
+        return String(template || '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => {
+            return Object.prototype.hasOwnProperty.call(variables, key) ? variables[key] : '';
+        });
+    }
+
+    private async buildKvkkMessage(): Promise<string> {
+        const fallback = [
             "Merhaba! 👋",
             "",
             "WhatsYpzck Elektrik Arıza Hattı'na hoş geldiniz.",
@@ -639,10 +1201,11 @@ export class BotManager {
             "",
             "Devam etmek için *KABUL EDİYORUM* yazınız."
         ].join("\n");
+        return this.getBotMessageTemplate('kvkkMessage', fallback);
     }
 
-    private buildWelcomeMenuMessage(): string {
-        return [
+    private async buildWelcomeMenuMessage(): Promise<string> {
+        const fallback = [
             "✅ KVKK onayınız alındı, teşekkürler!",
             "",
             "Merhaba! Ben WhatsYpzck Elektrik Arıza Asistanıyım 🔧⚡",
@@ -654,10 +1217,11 @@ export class BotManager {
             "",
             "Lütfen *1* veya *2* yazın."
         ].join("\n");
+        return this.getBotMessageTemplate('welcomeMenuMessage', fallback);
     }
 
-    private buildMainMenuMessage(): string {
-        return [
+    private async buildMainMenuMessage(): Promise<string> {
+        const fallback = [
             "Merhaba! Ben WhatsYpzck Elektrik Arıza Asistanıyım 🔧⚡",
             "",
             "Size nasıl yardımcı olabileceğimi seçin:",
@@ -667,10 +1231,11 @@ export class BotManager {
             "",
             "Lütfen *1* veya *2* yazın."
         ].join("\n");
+        return this.getBotMessageTemplate('mainMenuMessage', fallback);
     }
 
-    private buildFaultCategoryMessage(): string {
-        return [
+    private async buildFaultCategoryMessage(): Promise<string> {
+        const fallback = [
             "Arızanızın türünü belirtir misiniz? 🔍",
             "",
             "1️⃣ *Dağıtım Altyapısı Arızası*",
@@ -695,6 +1260,64 @@ export class BotManager {
             "📸 İsterseniz arıza fotoğrafı da paylaşabilirsiniz!",
             "📍 Konum paylaşımı da kabul edilmektedir."
         ].join("\n");
+        return this.getBotMessageTemplate('faultCategoryMessage', fallback);
+    }
+
+    private async buildIncidentStatusStartMessage(): Promise<string> {
+        const fallback = 'Ariza durumunu sorgulamak icin lutfen ariza kodu, telefon numarasi, tesisat/abone no veya ad soyad yaziniz.';
+        return this.getBotMessageTemplate('incidentStatusStartMessage', fallback);
+    }
+
+    private async buildIncidentStatusResultMessage(record: any): Promise<string> {
+        const fallback = [
+            '*ARIZA DURUM BİLGİSİ*',
+            'Kayıt No: {{incidentId}}',
+            'Durum: {{statusText}}',
+            'Oluşturma Zamanı: {{createdAt}}',
+            'Son Güncelleme: {{updatedAt}}',
+            'Adres: {{address}}',
+            'Tesisat/Sayaç No: {{meterNo}}'
+        ].join('\n');
+        const template = await this.getBotMessageTemplate('incidentStatusResultTemplate', fallback);
+        return this.applyTemplateVariables(template, {
+            incidentId: String(record?.incidentId || 'Bilinmiyor'),
+            statusText: this.incidentStatusText(record?.status),
+            createdAt: formatTrDateTime(record?.createdAt),
+            updatedAt: formatTrDateTime(record?.updatedAt),
+            address: String(record?.address || 'Bilinmiyor'),
+            meterNo: String(record?.meterNo || 'Bilinmiyor')
+        });
+    }
+
+    private buildIncidentStatusMatchesMessage(records: any[]): string {
+        const topThree = Array.isArray(records) ? records.slice(0, 3) : [];
+        if (!topThree.length) {
+            return 'Eslesen kayit bulunamadi.';
+        }
+
+        return [
+            '*SON 3 TALEP*',
+            'Birden fazla kayit bulundu. Son 3 talep asagidadir:',
+            '',
+            ...topThree.map((record, index) => [
+                `${index + 1}. Talep No: ${String(record?.incidentId || 'Bilinmiyor')}`,
+                `Tesisat/Abone No: ${String(record?.meterNo || 'Bilinmiyor')}`,
+                `Durum: ${this.incidentStatusText(record?.status)}`,
+                `Son Guncelleme: ${formatTrDateTime(record?.updatedAt || record?.createdAt)}`,
+            ].join('\n')),
+            '',
+            'Detay icin talep numarasini yazarak tekrar sorgulama yapabilirsiniz.'
+        ].join('\n');
+    }
+
+    private isOtherIncidentsIntent(text: string): boolean {
+        const normalized = String(text || '').trim().toLocaleLowerCase('tr-TR');
+        return normalized.includes('diger taleplerim')
+            || normalized.includes('diğer taleplerim')
+            || normalized.includes('diger talepler')
+            || normalized.includes('diğer talepler')
+            || normalized.includes('baska taleplerim')
+            || normalized.includes('başka taleplerim');
     }
 
     private async extractPhotoExifCoords(message: Message): Promise<{ lat: number; lng: number } | null> {
@@ -711,6 +1334,190 @@ export class BotManager {
         return null;
     }
 
+    private async applyTechnicianIncidentUpdate(params: {
+        incident: any;
+        technician: any;
+        status: 'INCELEMEDE' | 'ISLEME_ALINDI' | 'COZUMLENDI' | 'KAPATILDI';
+        note: string;
+        mediaUrl?: string;
+    }): Promise<void> {
+        const { incident, technician, status, note, mediaUrl } = params;
+        if (status === 'KAPATILDI' && !mediaUrl) {
+            throw new Error('KAPATILDI durumunda resim veya video zorunludur.');
+        }
+
+        incident.status = status;
+        incident.statusHistory = Array.isArray(incident.statusHistory) ? incident.statusHistory : [];
+        incident.statusHistory.push({
+            status,
+            note: `[Teknisyen: ${technician.displayName || technician.username}] ${note}`,
+            at: new Date()
+        });
+        if (mediaUrl) {
+            incident.images = Array.isArray(incident.images) ? incident.images : [];
+            incident.images.push(mediaUrl);
+        }
+        await incident.save();
+
+        const statusLabel = this.incidentStatusText(status);
+        const managerMessage = [
+            '*ANLIK TEKNISYEN GUNCELLEMESI*',
+            `Kayit No: ${incident.incidentId}`,
+            `Teknisyen: ${technician.displayName || technician.username}`,
+            `Durum: ${statusLabel}`,
+            `Not: ${note}`,
+            mediaUrl ? `Medya: ${mediaUrl}` : ''
+        ].filter(Boolean).join('\n');
+        await this.notifyManagersInstantly(managerMessage);
+
+        fireEvent('incident.status.updated', {
+            incidentId: String(incident.incidentId),
+            status: String(status),
+            statusLabel,
+            note,
+            customerName: String(incident.customerName || ''),
+            customerPhone: String(incident.customerPhone || ''),
+            customerEmail: String(incident.customerEmail || ''),
+            address: String(incident.address || ''),
+            meterNo: String(incident.meterNo || ''),
+            source: 'technician-whatsapp'
+        }).catch(() => {});
+    }
+
+    private async handleTechnicianOperationalMessage(message: Message, content: string): Promise<boolean> {
+        const senderPhoneRaw = String(message.from || '').split('@')[0] || '';
+        const normalizedSender = this.normalizePhoneForMatch(senderPhoneRaw);
+        if (!normalizedSender) return false;
+
+        const technician = await this.findFieldTechnicianByPhone(normalizedSender);
+        if (!technician) return false;
+
+        const state = this.technicianUpdateState.get(normalizedSender);
+
+        if (message.type === MessageTypes.IMAGE || message.type === MessageTypes.VIDEO) {
+            if (!state || state.awaiting !== 'media') {
+                await this.safeReply(message, 'Lutfen once ariza kodu ile guncelleme akisina baslayin.');
+                return true;
+            }
+
+            const mediaUrl = this.pendingMediaUrls.get(senderPhoneRaw) || this.pendingMediaUrls.get(normalizedSender);
+            this.pendingMediaUrls.delete(senderPhoneRaw);
+            this.pendingMediaUrls.delete(normalizedSender);
+
+            if (!mediaUrl) {
+                await this.safeReply(message, 'Medya dosyasi alinamadi. Lutfen tekrar gonderin.');
+                return true;
+            }
+
+            const incident = await IncidentModel.findOne({ incidentId: state.incidentId });
+            if (!incident) {
+                this.technicianUpdateState.delete(normalizedSender);
+                await this.safeReply(message, `Ariza kaydi bulunamadi: ${state.incidentId}`);
+                return true;
+            }
+
+            try {
+                await this.applyTechnicianIncidentUpdate({
+                    incident,
+                    technician,
+                    status: state.status || 'INCELEMEDE',
+                    note: state.note || '-',
+                    mediaUrl
+                });
+                this.technicianUpdateState.delete(normalizedSender);
+                await this.safeReply(message, `Guncelleme alindi. ${state.incidentId} kaydi basariyla islenmistir.`);
+            } catch (err: any) {
+                await this.safeReply(message, String(err?.message || 'Guncelleme kaydedilemedi.'));
+            }
+            return true;
+        }
+
+        if (message.type !== MessageTypes.TEXT) return false;
+
+        const text = String(content || '').trim();
+        if (!text) return true;
+
+        if (!state) {
+            const incidentId = this.normalizeIncidentId(text);
+            if (!incidentId) {
+                await this.safeReply(message, 'Teknisyen guncellemesi icin ilk mesajda sadece ariza kodunu yazin. Ornek: ARZ-1773396737967');
+                return true;
+            }
+            const incident = await IncidentModel.findOne({ incidentId }).lean() as any;
+            if (!incident) {
+                await this.safeReply(message, `Kayit bulunamadi: ${incidentId}`);
+                return true;
+            }
+
+            const assignedPhone = this.normalizePhoneForMatch(String(incident?.assignedTechnician?.phone || ''));
+            const techPhone = this.normalizePhoneForMatch(String(technician.phone || ''));
+            if (assignedPhone && techPhone && assignedPhone !== techPhone) {
+                await this.safeReply(message, `Bu kayit size atanmis gorunmuyor: ${incidentId}`);
+                return true;
+            }
+
+            this.technicianUpdateState.set(normalizedSender, {
+                incidentId,
+                awaiting: 'status'
+            });
+            await this.safeReply(message, 'Durum kodunu yazin: INCELEMEDE, ISLEME_ALINDI, COZUMLENDI veya KAPATILDI');
+            return true;
+        }
+
+        if (state.awaiting === 'status') {
+            const parsedStatus = this.parseTechnicianStatusCode(text);
+            if (!parsedStatus) {
+                await this.safeReply(message, 'Gecersiz durum kodu. Gecerli kodlar: INCELEMEDE, ISLEME_ALINDI, COZUMLENDI, KAPATILDI');
+                return true;
+            }
+            state.status = parsedStatus;
+            state.awaiting = 'note';
+            this.technicianUpdateState.set(normalizedSender, state);
+            await this.safeReply(message, 'Durum aciklamasini yazin.');
+            return true;
+        }
+
+        if (state.awaiting === 'note') {
+            state.note = text;
+            state.awaiting = 'media';
+            this.technicianUpdateState.set(normalizedSender, state);
+            if (state.status === 'KAPATILDI') {
+                await this.safeReply(message, 'KAPATILDI icin resim veya video zorunludur. Lutfen medya gonderin.');
+            } else {
+                await this.safeReply(message, 'Resim/video gonderebilirsiniz. Medya eklemek istemiyorsaniz ATLA yazin.');
+            }
+            return true;
+        }
+
+        if (state.awaiting === 'media') {
+            if (text.toUpperCase() === 'ATLA') {
+                const incident = await IncidentModel.findOne({ incidentId: state.incidentId });
+                if (!incident) {
+                    this.technicianUpdateState.delete(normalizedSender);
+                    await this.safeReply(message, `Ariza kaydi bulunamadi: ${state.incidentId}`);
+                    return true;
+                }
+                try {
+                    await this.applyTechnicianIncidentUpdate({
+                        incident,
+                        technician,
+                        status: state.status || 'INCELEMEDE',
+                        note: state.note || '-',
+                    });
+                    this.technicianUpdateState.delete(normalizedSender);
+                    await this.safeReply(message, `Guncelleme alindi. ${state.incidentId} kaydi basariyla guncellendi.`);
+                } catch (err: any) {
+                    await this.safeReply(message, String(err?.message || 'Guncelleme kaydedilemedi.'));
+                }
+                return true;
+            }
+            await this.safeReply(message, 'Lutfen resim/video gonderin veya medya eklemek istemiyorsaniz ATLA yazin.');
+            return true;
+        }
+
+        return true;
+    }
+
     private async processIncidentStatusFlow(message: Message, aiState: {
         active: boolean;
         history: string[];
@@ -720,6 +1527,13 @@ export class BotManager {
             active: boolean;
             awaiting: "name" | "phone" | "incidentId";
             data: { customerName: string; customerPhone: string; incidentId: string };
+            recentMatches?: Array<{
+                incidentId: string;
+                meterNo?: string;
+                status?: string;
+                updatedAt?: Date;
+                createdAt?: Date;
+            }>;
         };
     }, text: string): Promise<boolean> {
         let justStarted = false;
@@ -730,7 +1544,7 @@ export class BotManager {
             }
             aiState.statusFlow = {
                 active: true,
-                awaiting: "name",
+                awaiting: "incidentId",
                 data: {
                     customerName: "Bilinmiyor",
                     customerPhone: "Bilinmiyor",
@@ -743,66 +1557,202 @@ export class BotManager {
         const flow = aiState.statusFlow;
         if (!flow) return false;
 
-        if (justStarted && flow.awaiting === "name") {
-            await this.safeReply(message, "Ariza durumunu sorgulayabilmemiz icin lutfen adinizi ve soyadinizi yaziniz.");
+        if (this.isOtherIncidentsIntent(text)) {
+            if (Array.isArray(flow.recentMatches) && flow.recentMatches.length > 1) {
+                await this.safeReply(message, this.buildIncidentStatusMatchesMessage(flow.recentMatches));
+                return true;
+            }
+            await this.safeReply(message, 'Listelenecek baska talep bulunamadi. Lutfen ariza kodu, telefon numarasi, tesisat/abone no veya ad soyad yaziniz.');
             return true;
         }
 
-        if (flow.awaiting === "name") {
-            const name = String(text || "").trim();
-            if (name.length < 3 || !/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(name)) {
-                await this.safeReply(message, "Ad soyad bilginizi kontrol ederek tekrar yaziniz. Ornek: Ahmet Yilmaz");
-                return true;
-            }
-            flow.data.customerName = name;
-            flow.awaiting = "phone";
-            await this.safeReply(message, "Tesekkur ederiz. Simdi telefon numaranizi yaziniz. Ornek: 05XXXXXXXXX");
+        if (justStarted && flow.awaiting === "incidentId") {
+            await this.safeReply(message, await this.buildIncidentStatusStartMessage());
             return true;
         }
 
-        if (flow.awaiting === "phone") {
-            const normalizedPhone = this.normalizeTurkishPhone(text);
-            if (!normalizedPhone) {
-                await this.safeReply(message, "Telefon numarasi gecersiz gorunuyor. Lutfen 05XXXXXXXXX formatinda tekrar yaziniz.");
+        // Legacy sessions may still be at name/phone steps; migrate to incident code flow.
+        if (flow.awaiting === "name" || flow.awaiting === "phone") {
+            const inlineIncidentId = this.normalizeIncidentId(text);
+            if (inlineIncidentId) {
+                flow.awaiting = "incidentId";
+                flow.data.incidentId = inlineIncidentId;
+            } else {
+                flow.awaiting = "incidentId";
+                await this.safeReply(message, await this.buildIncidentStatusStartMessage());
                 return true;
             }
-            flow.data.customerPhone = normalizedPhone;
-            flow.awaiting = "incidentId";
-            await this.safeReply(message, "Lutfen ariza kayit numaranizi yaziniz. Ornek: ARZ-1773396737967");
-            return true;
         }
 
         if (flow.awaiting === "incidentId") {
-            const incidentId = this.normalizeIncidentId(text);
-            if (!incidentId) {
-                await this.safeReply(message, "Ariza kayit numarasi gecersiz gorunuyor. Lutfen ARZ- ile baslayan kayit noyu tekrar yaziniz.");
+            const rawQuery = String(text || '').trim();
+            const incidentId = this.normalizeIncidentId(rawQuery);
+            const normalizedPhone = this.normalizeTurkishPhone(rawQuery);
+            const meterNo = this.sanitizeMeterNo(rawQuery);
+            const hasMeterNo = this.isValidMeterNo(meterNo);
+            const hasName = rawQuery.length >= 3 && /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(rawQuery);
+
+            const orFilters: any[] = [];
+            if (incidentId) orFilters.push({ incidentId });
+            if (normalizedPhone) orFilters.push({ customerPhone: normalizedPhone });
+            if (hasMeterNo) orFilters.push({ meterNo });
+            if (hasName) {
+                const escapedName = rawQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                orFilters.push({ customerName: { $regex: escapedName, $options: 'i' } });
+            }
+
+            if (!orFilters.length) {
+                await this.safeReply(message, "Lutfen ariza kodu, telefon numarasi, tesisat/abone no veya ad soyad giriniz.");
                 return true;
             }
-            flow.data.incidentId = incidentId;
 
-            const escapedName = String(flow.data.customerName || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const record = await IncidentModel.findOne({
-                incidentId,
-                customerPhone: flow.data.customerPhone,
-                customerName: { $regex: `^${escapedName}$`, $options: 'i' }
-            }).lean() as any;
+            const records = await IncidentModel.find({ $or: orFilters })
+                .sort({ updatedAt: -1, createdAt: -1 })
+                .limit(5)
+                .lean() as any[];
+
+            flow.recentMatches = records.map((record) => ({
+                incidentId: String(record?.incidentId || ''),
+                meterNo: String(record?.meterNo || ''),
+                status: String(record?.status || ''),
+                updatedAt: record?.updatedAt,
+                createdAt: record?.createdAt,
+            }));
 
             flow.active = false;
 
-            if (!record) {
-                await this.safeReply(message, "Belirttiginiz bilgilerle eslesen bir ariza kaydi bulunamadi. Lutfen ad soyad, telefon ve kayit numaranizi kontrol ederek tekrar deneyiniz.");
+            if (!records.length) {
+                await this.safeReply(message, `Kayit bulunamadi: ${rawQuery}`);
                 return true;
             }
 
-            await this.safeReply(message, [
-                "*ARIZA DURUM BILGISI*",
-                `Kayit No: ${record.incidentId}`,
-                `Durum: ${this.incidentStatusText(record.status)}`,
-                `Olusturma Zamani: ${formatTrDateTime(record.createdAt)}`,
-                `Son Guncelleme: ${formatTrDateTime(record.updatedAt)}`,
-                `Adres: ${record.address || 'Bilinmiyor'}`,
-                `Tesisat/Sayac No: ${record.meterNo || 'Bilinmiyor'}`
-            ].join("\n"));
+            if (records.length > 1) {
+                await this.safeReply(message, this.buildIncidentStatusMatchesMessage(records));
+                return true;
+            }
+
+            const record = records[0];
+            await this.safeReply(message, await this.buildIncidentStatusResultMessage(record));
+            return true;
+        }
+
+        return false;
+    }
+
+    private async processCustomerIncidentClosureFlow(
+        message: Message,
+        phoneNumber: string,
+        aiState: {
+            active: boolean;
+            history: string[];
+            infoProvided: boolean;
+            dispatchDone: boolean;
+            closureFlow?: {
+                active: boolean;
+                awaiting: "incidentId" | "confirm";
+                requestedReason?: string;
+                selectedIncidentId?: string;
+                candidates: Array<{
+                    incidentId: string;
+                    status?: string;
+                    meterNo?: string;
+                    address?: string;
+                    customerName?: string;
+                    customerPhone?: string;
+                    customerEmail?: string;
+                    updatedAt?: Date;
+                    createdAt?: Date;
+                }>;
+            };
+        },
+        text: string
+    ): Promise<boolean> {
+        let justStarted = false;
+
+        if (!aiState.closureFlow?.active) {
+            if (!this.parseCustomerIncidentClosureIntent(text)) {
+                return false;
+            }
+
+            const records = await this.findCustomerClosableIncidents(phoneNumber, text);
+            if (!records.length) {
+                await this.safeReply(message, await this.buildIncidentClosureNoOpenMessage());
+                return true;
+            }
+
+            aiState.closureFlow = {
+                active: true,
+                awaiting: 'incidentId',
+                requestedReason: String(text || '').trim() || 'Sorun cozuldu / yanlis talep',
+                candidates: records.map((record) => ({
+                    incidentId: String(record?.incidentId || ''),
+                    status: String(record?.status || ''),
+                    meterNo: String(record?.meterNo || ''),
+                    address: String(record?.address || ''),
+                    customerName: String(record?.customerName || ''),
+                    customerPhone: String(record?.customerPhone || ''),
+                    customerEmail: String(record?.customerEmail || ''),
+                    updatedAt: record?.updatedAt,
+                    createdAt: record?.createdAt,
+                }))
+            };
+            justStarted = true;
+        }
+
+        const flow = aiState.closureFlow;
+        if (!flow) return false;
+
+        if (this.isConversationEndIntent(text)) {
+            aiState.closureFlow = undefined;
+            await this.safeReply(message, this.buildConversationEndedReply());
+            return true;
+        }
+
+        if (justStarted) {
+            await this.safeReply(message, await this.buildIncidentClosureSelectionMessage(flow.candidates));
+            return true;
+        }
+
+        if (flow.awaiting === 'incidentId') {
+            const candidateText = String(text || '').trim();
+            const incidentId = this.normalizeIncidentId(candidateText);
+            let selected = flow.candidates.find((item) => item.incidentId === incidentId);
+
+            if (!selected && /^\d+$/.test(candidateText)) {
+                const index = Number(candidateText) - 1;
+                if (index >= 0) {
+                    selected = flow.candidates[index];
+                }
+            }
+
+            if (!selected) {
+                await this.safeReply(message, await this.buildIncidentClosureSelectionMessage(flow.candidates));
+                return true;
+            }
+
+            flow.selectedIncidentId = selected.incidentId;
+            flow.awaiting = 'confirm';
+            await this.safeReply(message, await this.buildIncidentClosureConfirmMessage(selected));
+            return true;
+        }
+
+        if (flow.awaiting === 'confirm') {
+            if (!this.isCustomerClosureApproval(text)) {
+                await this.safeReply(message, await this.buildIncidentClosureNeedApprovalMessage());
+                return true;
+            }
+
+            const selectedIncidentId = String(flow.selectedIncidentId || '').trim();
+            const incident = await IncidentModel.findOne({ incidentId: selectedIncidentId });
+            if (!incident) {
+                aiState.closureFlow = undefined;
+                await this.safeReply(message, `Talep bulunamadi: ${selectedIncidentId}`);
+                return true;
+            }
+
+            await this.closeIncidentByCustomerRequest(incident, String(flow.requestedReason || 'Sorun cozuldu / yanlis talep'));
+            aiState.closureFlow = undefined;
+            await this.safeReply(message, await this.buildIncidentClosureSuccessMessage(selectedIncidentId));
             return true;
         }
 
@@ -1415,6 +2365,13 @@ export class BotManager {
             ...(locationCoords ? { locationCoords } : {}),
             ...(photoUrls?.length ? { images: photoUrls } : {}),
         });
+
+        try {
+            await this.autoAssignIncidentByArea(incidentDoc);
+        } catch (assignmentErr) {
+            logger.error('Otomatik teknisyen atamasi basarisiz:', assignmentErr);
+        }
+
         fireEvent('incident.created', {
             incidentId,
             customerName: parsed.customerName,
@@ -1459,7 +2416,8 @@ export class BotManager {
             `Adres: ${parsed.address}`,
             `Tesisat/Sayac No: ${parsed.meterNo}`,
             `Musteri E-Posta: ${parsed.customerEmail}`,
-            `Imza: ${AppConfig.instance.getBotAuthor()}`,
+            `Imza: ${String(settings?.botIdentity?.author || AppConfig.instance.getBotAuthor())}`,
+
             `Talep: ${issueSummary}`,
             `Olusturma Zamani: ${createdAt.toLocaleString('tr-TR')}`
         ].join("\n") +
@@ -1483,7 +2441,7 @@ export class BotManager {
             this.csvEscape(parsed.customerEmail),
             this.csvEscape(parsed.address),
             this.csvEscape(parsed.meterNo),
-            this.csvEscape(AppConfig.instance.getBotAuthor()),
+            this.csvEscape(String(settings?.botIdentity?.author || AppConfig.instance.getBotAuthor())),
             this.csvEscape(issueSummary),
             this.csvEscape(phoneNumber),
             this.csvEscape((photoUrls || []).join('; ')),
@@ -1600,7 +2558,7 @@ export class BotManager {
                 notificationTemplates.institutionName || process.env.INCIDENT_MAIL_INSTITUTION || "Coruh EDAS Artvin Il Mudurlugu"
             ).trim();
             const signatureName = String(
-                notificationTemplates.signatureName || AppConfig.instance.getBotAuthor()
+                notificationTemplates.signatureName || String(settings?.botIdentity?.author || AppConfig.instance.getBotAuthor())
             ).trim();
             const closingLine = String(
                 notificationTemplates.closingLine || process.env.INCIDENT_MAIL_CLOSING || "Bilgilerinize sunar, iyi gunler dileriz."
@@ -2046,14 +3004,16 @@ export class BotManager {
                             locationCoords: existing?.locationCoords || null,
                             pendingPhotoUrls: Array.isArray(existing?.pendingPhotoUrls) ? existing.pendingPhotoUrls : [],
                         });
-                        await this.safeReply(message, this.buildWelcomeMenuMessage());
+                        await this.safeReply(message, await this.buildWelcomeMenuMessage());
                         return;
                     } else {
-                        await this.safeReply(message, this.buildKvkkMessage());
+                        await this.safeReply(message, await this.buildKvkkMessage());
                         return;
                     }
                 }
             }
+
+            let savedMediaUrl: string | undefined;
 
             // Check maintenance mode (save flag into message, reply & stop if active)
             let _maintenanceModeActive = false;
@@ -2072,7 +3032,8 @@ export class BotManager {
                 // Persist incoming message for inbox
             if (!user.isMe) {
                 const inboxBody = content || (message.type === MessageTypes.VOICE ? '[Voice message]' : '[Empty message]');
-                const inboxType: 'text' | 'image' | 'other' = message.type === MessageTypes.IMAGE ? 'image' :
+                const inboxType: 'text' | 'image' | 'other' =
+                    (message.type === MessageTypes.IMAGE || message.type === MessageTypes.VIDEO) ? 'image' :
                     (message.type === MessageTypes.TEXT ? 'text' : 'other');
                 const isGroup = chat?.isGroup ?? false;
                 const normalizedContent = String(content || "").trim();
@@ -2080,34 +3041,39 @@ export class BotManager {
                 shouldPrioritizeIncidentFlow = !!normalizedContent && (
                     this.parseIncidentIntent(normalizedContent) ||
                     this.parseIncidentStatusIntent(normalizedContent) ||
+                    this.parseCustomerIncidentClosureIntent(normalizedContent) ||
                     this.isOutageComplaint(normalizedContent) ||
                     this.hasContactInfo(normalizedContent) ||
                     Boolean(existingAiState?.incidentFlow?.active) ||
                     Boolean(existingAiState?.statusFlow?.active) ||
+                    Boolean(existingAiState?.closureFlow?.active) ||
                     Boolean(existingAiState?.menuStep === 'waiting') ||
                     Boolean(existingAiState?.faultCategoryStep === 'waiting')
                 );
                 const conversationPhone = normalizeConversationPhone(user.number);
+                const normalizedUserNumber = conversationPhone || user.number;
 
-                // Save image to disk if message contains a photo
-                let savedMediaUrl: string | undefined;
-                if (message.type === MessageTypes.IMAGE) {
+                // Save media to disk when image or video is received.
+                if (message.type === MessageTypes.IMAGE || message.type === MessageTypes.VIDEO) {
                     try {
                         const media = await message.downloadMedia();
                         if (media?.data) {
                             const buffer = Buffer.from(media.data, 'base64');
-                            const ext = (media.mimetype?.split('/')[1]?.split(';')[0] || 'jpg').replace('jpeg', 'jpg');
+                            const defaultExt = message.type === MessageTypes.VIDEO ? 'mp4' : 'jpg';
+                            const ext = (media.mimetype?.split('/')[1]?.split(';')[0] || defaultExt).replace('jpeg', 'jpg');
                             const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'incident-images', user.number);
                             if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
                             const filename = `${Date.now()}.${ext}`;
                             const filePath = path.join(uploadDir, filename);
                             fs.writeFileSync(filePath, buffer);
                             savedMediaUrl = `/public/uploads/incident-images/${user.number}/${filename}`;
+                            // Keep both raw and normalized keys to avoid lookup mismatches later.
                             this.pendingMediaUrls.set(user.number, savedMediaUrl);
-                            logger.info(`Fotoğraf kaydedildi: ${filePath}`);
+                            this.pendingMediaUrls.set(normalizedUserNumber, savedMediaUrl);
+                            logger.info(`Medya kaydedildi: ${filePath}`);
                         }
                     } catch (imgErr) {
-                        logger.warn('Fotoğraf kaydedilemedi:', imgErr);
+                        logger.warn('Medya kaydedilemedi:', imgErr);
                     }
                 }
 
@@ -2172,7 +3138,7 @@ export class BotManager {
 
             if (shouldPrioritizeIncidentFlow) {
                 await this.runInPhoneQueue(user.number, async () => {
-                    await this.processMessageContent(message, content, userI18n, chat);
+                    await this.processMessageContent(message, content, userI18n, chat, savedMediaUrl);
                 });
                 return;
             }
@@ -2180,7 +3146,7 @@ export class BotManager {
             const results = await Promise.allSettled([
                 onboard(message, userI18n),
                 this.runInPhoneQueue(user.number, async () => {
-                    await this.processMessageContent(message, content, userI18n, chat);
+                    await this.processMessageContent(message, content, userI18n, chat, savedMediaUrl);
                 })
             ]);
 
@@ -2212,13 +3178,20 @@ export class BotManager {
         return this.userI18nCache.get(userNumber)!;
     }
 
-    private async processMessageContent(message: Message, content: string, userI18n: UserI18n, chat: any) {
+    private async processMessageContent(message: Message, content: string, userI18n: UserI18n, chat: any, incomingMediaUrl?: string) {
         const phoneNumber = message.from.split('@')[0];
+        const normalizedPhoneNumber = normalizeConversationPhone(phoneNumber) || phoneNumber;
 
         // Handle location messages
         if ((message as any).type === 'location') {
             const loc = (message as any).location;
             if (loc?.latitude != null && loc?.longitude != null) {
+                const lat = Number(loc.latitude);
+                const lng = Number(loc.longitude);
+                const fallbackAddress = String(loc?.description || loc?.address || "").trim();
+                const resolvedAddress = await this.resolveLocationAddress(lat, lng);
+                const addressText = fallbackAddress || resolvedAddress || "Adres tespit edilemedi";
+
                 const aiState = this.aiConversationState.get(phoneNumber) || {
                     active: true,
                     history: [],
@@ -2229,27 +3202,54 @@ export class BotManager {
                 };
                 if (aiState) {
                     // Always store at aiState level so it's available even before incidentFlow starts
-                    aiState.locationCoords = { lat: loc.latitude, lng: loc.longitude };
+                    aiState.locationCoords = { lat, lng };
                     if (aiState.incidentFlow?.active) {
-                        aiState.incidentFlow.locationCoords = { lat: loc.latitude, lng: loc.longitude };
+                        aiState.incidentFlow.locationCoords = { lat, lng };
+                        if ((!aiState.incidentFlow.data.address || aiState.incidentFlow.data.address === "Bilinmiyor") && addressText !== "Adres tespit edilemedi") {
+                            aiState.incidentFlow.data.address = addressText;
+                        }
                     }
                     this.aiConversationState.set(phoneNumber, aiState);
                 }
                 if (aiState?.incidentFlow?.active && aiState.incidentFlow.awaiting === 'location') {
                     aiState.incidentFlow.awaiting = 'meter';
                     this.aiConversationState.set(phoneNumber, aiState);
-                    await this.safeReply(message, "Konumunuz iletildi. Tesekkur ederiz. Simdi tesisat no veya sayac no veya abone no bilginizi yazin.");
+                    await this.safeReply(
+                        message,
+                        [
+                            "Konumunuz iletildi. Tesekkur ederiz.",
+                            `Adres: ${addressText}`,
+                            `Koordinatlar: ${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+                            "Simdi tesisat no veya sayac no veya abone no bilginizi yazin."
+                        ].join("\n")
+                    );
                     return;
                 }
-                await this.safeReply(message, `📍 Konum alındı: ${loc.latitude}, ${loc.longitude}. Teşekkürler!`);
+                await this.safeReply(
+                    message,
+                    [
+                        "Konum alindi.",
+                        `Adres: ${addressText}`,
+                        `Koordinatlar: ${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+                        "Tesekkurler."
+                    ].join("\n")
+                );
             }
+            return;
+        }
+
+        const technicianFlowHandled = await this.handleTechnicianOperationalMessage(message, content);
+        if (technicianFlowHandled) {
             return;
         }
 
         // Handle image messages - extract EXIF coords and save reference in incident flow
         if ((message as any).type === 'image') {
-            const mediaUrl = this.pendingMediaUrls.get(phoneNumber);
+            const mediaUrl = incomingMediaUrl
+                || this.pendingMediaUrls.get(phoneNumber)
+                || this.pendingMediaUrls.get(normalizedPhoneNumber);
             this.pendingMediaUrls.delete(phoneNumber);
+            this.pendingMediaUrls.delete(normalizedPhoneNumber);
 
             const coords = await this.extractPhotoExifCoords(message);
             const aiState = this.aiConversationState.get(phoneNumber) || {
@@ -2684,15 +3684,21 @@ export class BotManager {
                     },
                     statusFlow: {
                         active: false,
-                        awaiting: "name",
+                        awaiting: "incidentId",
                         data: {
                             customerName: "Bilinmiyor",
                             customerPhone: "Bilinmiyor",
                             incidentId: "Bilinmiyor"
-                        }
+                        },
+                        recentMatches: []
+                    },
+                    closureFlow: {
+                        active: false,
+                        awaiting: 'incidentId',
+                        candidates: []
                     }
                 });
-                await this.safeReply(message, this.buildMainMenuMessage());
+                await this.safeReply(message, await this.buildMainMenuMessage());
             }
             applyScore(phoneNumber, 'command_used').catch(() => {});
             SettingsModel.findOneAndUpdate(
@@ -2720,18 +3726,46 @@ export class BotManager {
                     },
                     statusFlow: {
                         active: false,
-                        awaiting: "name",
+                        awaiting: "incidentId",
                         data: {
                             customerName: "Bilinmiyor",
                             customerPhone: "Bilinmiyor",
                             incidentId: "Bilinmiyor"
-                        }
+                        },
+                        recentMatches: []
+                    },
+                    closureFlow: {
+                        active: false,
+                        awaiting: 'incidentId',
+                        candidates: []
                     }
                 };
                 this.aiConversationState.set(phoneNumber, aiState);
             }
             if (aiState?.active) {
                 if (chat) await chat.sendStateTyping();
+
+                if (this.isConversationEndIntent(text)) {
+                    aiState.menuStep = undefined;
+                    aiState.faultCategoryStep = undefined;
+                    aiState.incidentFlow = undefined;
+                    aiState.statusFlow = undefined;
+                    aiState.closureFlow = undefined;
+                    aiState.pendingPhotoUrls = [];
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    await this.safeReply(message, this.buildConversationEndedReply());
+                    return;
+                }
+
+                try {
+                    const closureFlowHandled = await this.processCustomerIncidentClosureFlow(message, phoneNumber, aiState, text);
+                    this.aiConversationState.set(phoneNumber, aiState);
+                    if (closureFlowHandled) {
+                        return;
+                    }
+                } catch (closureFlowErr) {
+                    logger.error('Musteri talep kapatma akisi hatasi:', closureFlowErr);
+                }
 
                 // Handle main menu selection step
                 if (aiState.menuStep === 'waiting') {
@@ -2740,20 +3774,21 @@ export class BotManager {
                         aiState.menuStep = undefined;
                         aiState.faultCategoryStep = 'waiting';
                         this.aiConversationState.set(phoneNumber, aiState);
-                        await this.safeReply(message, this.buildFaultCategoryMessage());
+                        await this.safeReply(message, await this.buildFaultCategoryMessage());
                         return;
                     } else if (choice === '2') {
                         aiState.menuStep = undefined;
                         aiState.statusFlow = {
                             active: true,
-                            awaiting: 'name',
-                            data: { customerName: 'Bilinmiyor', customerPhone: 'Bilinmiyor', incidentId: 'Bilinmiyor' }
+                            awaiting: 'incidentId',
+                            data: { customerName: 'Bilinmiyor', customerPhone: 'Bilinmiyor', incidentId: 'Bilinmiyor' },
+                            recentMatches: []
                         };
                         this.aiConversationState.set(phoneNumber, aiState);
-                        await this.safeReply(message, 'Arıza durumunu sorgulayabilmemiz için lütfen adınızı ve soyadınızı yazınız.');
+                        await this.safeReply(message, await this.buildIncidentStatusStartMessage());
                         return;
                     } else {
-                        await this.safeReply(message, this.buildMainMenuMessage());
+                        await this.safeReply(message, await this.buildMainMenuMessage());
                         return;
                     }
                 }
@@ -2764,11 +3799,13 @@ export class BotManager {
                     if (choice === '1') {
                         aiState.faultCategoryStep = undefined;
                         const pendingLocation = aiState.locationCoords || null;
+                        const pendingPhotoUrls = Array.isArray(aiState.pendingPhotoUrls) ? [...aiState.pendingPhotoUrls] : [];
                         aiState.incidentFlow = {
                             active: true,
                             awaiting: 'issue',
                             correctingSingleField: false,
                             locationCoords: pendingLocation,
+                            photoUrls: pendingPhotoUrls,
                             data: {
                                 issueDescription: 'Bilinmiyor',
                                 customerName: 'Bilinmiyor',
@@ -2778,18 +3815,21 @@ export class BotManager {
                                 customerEmail: 'Bilinmiyor'
                             }
                         };
+                        aiState.pendingPhotoUrls = [];
                         this.aiConversationState.set(phoneNumber, aiState);
                         await this.safeReply(message, 'Yaşadığınız sorunu kısaca tarif edebilir misiniz?');
                         return;
                     } else if (choice === '2') {
                         aiState.faultCategoryStep = undefined;
                         const pendingLocation = aiState.locationCoords || null;
+                        const pendingPhotoUrls = Array.isArray(aiState.pendingPhotoUrls) ? [...aiState.pendingPhotoUrls] : [];
                         aiState.incidentFlow = {
                             active: true,
                             awaiting: 'issue',
                             correctingSingleField: false,
                             requestCategory: 'billing',
                             locationCoords: pendingLocation,
+                            photoUrls: pendingPhotoUrls,
                             data: {
                                 issueDescription: 'Bilinmiyor',
                                 customerName: 'Bilinmiyor',
@@ -2799,6 +3839,7 @@ export class BotManager {
                                 customerEmail: 'Bilinmiyor'
                             }
                         };
+                        aiState.pendingPhotoUrls = [];
                         this.aiConversationState.set(phoneNumber, aiState);
                         await this.safeReply(message, 'Fatura veya abonelik talebinizi kısaca tarif edebilir misiniz?');
                         return;
@@ -2811,11 +3852,11 @@ export class BotManager {
                             'Bu tür sorunlar için bir elektrikçi veya tesisatçıdan yardım almanızı öneririz.',
                             'Başka bir konuda yardımcı olabilir miyim?',
                             '',
-                            this.buildMainMenuMessage()
+                            await this.buildMainMenuMessage()
                         ].join('\n'));
                         return;
                     } else {
-                        await this.safeReply(message, this.buildFaultCategoryMessage());
+                        await this.safeReply(message, await this.buildFaultCategoryMessage());
                         return;
                     }
                 }
@@ -2889,9 +3930,11 @@ export class BotManager {
 
                 if (this.isOutageComplaint(text)) {
                     const stableReply = "Ariza kaydi olusturabilmemiz icin once adinizi ve soyadinizi yazar misiniz?";
+                    const pendingPhotoUrls = Array.isArray(aiState.pendingPhotoUrls) ? [...aiState.pendingPhotoUrls] : [];
                     aiState.incidentFlow = {
                         active: true,
                         awaiting: "issue",
+                        photoUrls: pendingPhotoUrls,
                         data: {
                             issueDescription: String(text || "").trim() || "Bilinmiyor",
                             customerName: "Bilinmiyor",
@@ -2901,6 +3944,7 @@ export class BotManager {
                             customerEmail: "Bilinmiyor"
                         }
                     };
+                    aiState.pendingPhotoUrls = [];
                     this.aiConversationState.set(phoneNumber, aiState);
                     await this.safeReply(message, stableReply);
                     return;
@@ -2908,7 +3952,7 @@ export class BotManager {
 
                 aiState.menuStep = 'waiting';
                 this.aiConversationState.set(phoneNumber, aiState);
-                await this.safeReply(message, this.buildMainMenuMessage());
+                await this.safeReply(message, await this.buildMainMenuMessage());
                 return;
             }
         } else if (content.startsWith(this.prefix)) {

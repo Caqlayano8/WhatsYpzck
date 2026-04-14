@@ -2,6 +2,22 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../utils/auth.util';
 import logger from '../../configs/logger.config';
 
+declare global {
+  namespace Express {
+    interface Request {
+      user: {
+        userId?: string;
+        _id?: string;
+        id?: string;
+        username?: string;
+        role?: string;
+        permissions?: Record<string, boolean>;
+        [key: string]: any;
+      };
+    }
+  }
+}
+
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');

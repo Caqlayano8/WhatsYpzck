@@ -94,6 +94,19 @@ app.get('/admin/security', (req, res) => {
 
 app.get('/panel', (req, res) => {
     res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    res.render('panel');
+});
+
+app.get('/technician', (req, res) => {
+    res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
     res.render('panel');
 });
 
@@ -104,6 +117,19 @@ app.get(['/mobile', '/web-mobile', '/webmobil', '/panel/mobile'], (req, res) => 
 
 app.get('/panel/login', (req, res) => {
     res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    res.render('panel-login');
+});
+
+app.get('/technician/login', (req, res) => {
+    res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
     res.render('panel-login');
 });
 

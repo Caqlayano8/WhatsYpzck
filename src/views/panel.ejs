@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>WhatsYpzck Kullanıcı Paneli</title>
+  <title>WhatsYpzck Kullanici Paneli</title>
   <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
   <meta name="theme-color" content="#4f46e5">
   <link rel="icon" href="/public/favicon.png">
@@ -14,7 +14,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f8fafc; color: #1e293b; min-height: 100vh; }
 
-    /* ── Topbar ── */
+    /* ÔöÇÔöÇ Topbar ÔöÇÔöÇ */
     .topbar {
       position: fixed; top: 0; left: 0; right: 0; z-index: 100;
       height: 56px;
@@ -40,7 +40,7 @@
     .topbar-btn.logout { background: #fef2f2; color: #dc2626; }
     .topbar-btn.logout:hover { background: #fee2e2; }
 
-    /* ── Bottom Nav (mobile) ── */
+    /* ÔöÇÔöÇ Bottom Nav (mobile) ÔöÇÔöÇ */
     .bottom-nav {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
       background: #fff; border-top: 1.5px solid #e2e8f0;
@@ -59,7 +59,7 @@
     .bottom-nav-item.active { color: #4f46e5; }
     .bottom-nav-item:hover { color: #6366f1; }
 
-    /* ── Main Content ── */
+    /* ÔöÇÔöÇ Main Content ÔöÇÔöÇ */
     .main-content {
       padding-top: 56px;
       padding-bottom: 68px;
@@ -68,7 +68,7 @@
     .tab-panel { display: none; padding: 16px; }
     .tab-panel.active { display: block; }
 
-    /* ── Cards ── */
+    /* ÔöÇÔöÇ Cards ÔöÇÔöÇ */
     .card {
       background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px;
       padding: 16px; margin-bottom: 12px;
@@ -145,7 +145,7 @@
     .toggle-track { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
     .toggle-track input { opacity: 0; width: 0; height: 0; }
 
-    /* Desktop sidebar (≥768px) */
+    /* Desktop sidebar (ÔëÑ768px) */
     @media (min-width: 768px) {
       body { display: flex; }
       .bottom-nav { display: none; }
@@ -187,7 +187,7 @@
 </head>
 <body>
 
-  <!-- ── Sidebar (Desktop) ── -->
+  <!-- ÔöÇÔöÇ Sidebar (Desktop) ÔöÇÔöÇ -->
   <aside class="sidebar" id="sidebar" style="display:none;">
     <div class="sidebar-brand">
       <div class="sidebar-logo">
@@ -195,7 +195,7 @@
       </div>
       <div>
         <div style="font-weight:700;font-size:14px;color:#1e293b;">WhatsYpzck</div>
-        <div style="font-size:11px;color:#94a3b8;" id="sb-username-label">Kullanıcı Paneli</div>
+        <div style="font-size:11px;color:#94a3b8;" id="sb-username-label">Kullanici Paneli</div>
       </div>
     </div>
     <nav class="sidebar-nav" id="sidebar-nav">
@@ -203,15 +203,15 @@
     </nav>
     <div class="sidebar-footer">
       <button class="sidebar-footer-btn security" onclick="openSecurityModal()">
-        <i class="fas fa-shield-alt"></i> Güvenlik / 2FA
+        <i class="fas fa-shield-alt"></i> Guvenlik / 2FA
       </button>
       <button class="sidebar-footer-btn logout" onclick="doLogout()">
-        <i class="fas fa-sign-out-alt"></i> Çıkış Yap
+        <i class="fas fa-sign-out-alt"></i> Cikis Yap
       </button>
     </div>
   </aside>
 
-  <!-- ── Topbar ── -->
+  <!-- ÔöÇÔöÇ Topbar ÔöÇÔöÇ -->
   <div class="topbar">
     <div class="topbar-brand">
       <div class="topbar-logo">
@@ -219,12 +219,12 @@
       </div>
       <div>
         <div class="topbar-title">WhatsYpzck</div>
-        <div class="topbar-subtitle" id="topbar-username">Yükleniyor…</div>
+        <div class="topbar-subtitle" id="topbar-username">Yukleniyor...</div>
       </div>
     </div>
     <div class="topbar-actions">
       <button class="topbar-btn security" onclick="openSecurityModal()">
-        <i class="fas fa-shield-alt"></i> <span class="hidden md:inline">Güvenlik</span>
+        <i class="fas fa-shield-alt"></i> <span class="hidden md:inline">Guvenlik</span>
       </button>
       <button class="topbar-btn logout" onclick="doLogout()">
         <i class="fas fa-sign-out-alt"></i>
@@ -232,35 +232,35 @@
     </div>
   </div>
 
-  <!-- ── Main Content ── -->
+  <!-- ÔöÇÔöÇ Main Content ÔöÇÔöÇ -->
   <div class="main-content" id="main-content">
 
     <!-- Dashboard -->
     <div id="tab-dashboard" class="tab-panel active">
       <div class="card">
-        <div class="card-title"><i class="fas fa-home mr-2 text-indigo-500"></i>Hoş Geldiniz</div>
-        <p style="font-size:13px;color:#64748b;" id="dash-welcome">Panele hoş geldiniz.</p>
+        <div class="card-title"><i class="fas fa-home mr-2 text-indigo-500"></i>Hos Geldiniz</div>
+        <p style="font-size:13px;color:#64748b;" id="dash-welcome">Panele hos geldiniz.</p>
       </div>
       <div class="stat-grid" id="dash-stats">
         <!-- Dinamik -->
       </div>
     </div>
 
-    <!-- Arızalar -->
+    <!-- Arizalar -->
     <div id="tab-incidents" class="tab-panel">
       <div class="search-wrap">
         <i class="fas fa-search search-icon"></i>
-        <input class="search-box" id="inc-search" type="text" placeholder="Arıza ara..." oninput="filterIncidents()">
+        <input class="search-box" id="inc-search" type="text" placeholder="Ariza ara..." oninput="filterIncidents()">
       </div>
       <div class="filter-bar">
-        <button class="filter-btn active" data-status="all" onclick="setIncidentFilter('all',this)">Tümü</button>
-        <button class="filter-btn" data-status="ALINDI" onclick="setIncidentFilter('ALINDI',this)">Açık</button>
+        <button class="filter-btn active" data-status="all" onclick="setIncidentFilter('all',this)">Tumu</button>
+        <button class="filter-btn" data-status="ALINDI" onclick="setIncidentFilter('ALINDI',this)">Acik</button>
         <button class="filter-btn" data-status="ISLEME_ALINDI" onclick="setIncidentFilter('ISLEME_ALINDI',this)">Devam Ediyor</button>
-        <button class="filter-btn" data-status="COZUMLENDI" onclick="setIncidentFilter('COZUMLENDI',this)">Çözüldü</button>
-        <button class="filter-btn" data-status="KAPATILDI" onclick="setIncidentFilter('KAPATILDI',this)">Kapatıldı</button>
+        <button class="filter-btn" data-status="COZUMLENDI" onclick="setIncidentFilter('COZUMLENDI',this)">Cozuldu</button>
+        <button class="filter-btn" data-status="KAPATILDI" onclick="setIncidentFilter('KAPATILDI',this)">Kapatildi</button>
       </div>
       <div id="incidents-list">
-        <div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>
+        <div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yukleniyor...</div>
       </div>
     </div>
 
@@ -268,37 +268,37 @@
     <div id="tab-conversations" class="tab-panel">
       <div class="search-wrap">
         <i class="fas fa-search search-icon"></i>
-        <input class="search-box" id="conv-search" type="text" placeholder="Kişi veya mesaj ara..." oninput="filterConversations()">
+        <input class="search-box" id="conv-search" type="text" placeholder="Kisi veya mesaj ara..." oninput="filterConversations()">
       </div>
       <div id="conversations-list">
-        <div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>
+        <div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yukleniyor...</div>
       </div>
     </div>
 
-    <!-- Güvenlik (sadece desktop — sidebar üzerinden erişiliyor, burada bilgi kartı) -->
+    <!-- Guvenlik (sadece desktop) -->
     <div id="tab-security" class="tab-panel">
       <div class="card" style="text-align:center;padding:32px;">
         <div style="width:56px;height:56px;background:#eef2ff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-bottom:14px;">
           <i class="fas fa-shield-alt" style="color:#4f46e5;font-size:22px;"></i>
         </div>
-        <div style="font-weight:700;font-size:15px;color:#1e293b;margin-bottom:8px;">Güvenlik Ayarları</div>
-        <p style="font-size:13px;color:#64748b;margin-bottom:18px;">İki adımlı doğrulama (2FA) ve şifre değiştirme işlemleri.</p>
+        <div style="font-weight:700;font-size:15px;color:#1e293b;margin-bottom:8px;">Guvenlik Ayarlari</div>
+        <p style="font-size:13px;color:#64748b;margin-bottom:18px;">Iki adimli dogrulama (2FA) ve sifre degistirme islemleri.</p>
         <button onclick="openSecurityModal()" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:11px 24px;font-weight:700;font-size:13px;cursor:pointer;" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">
-          <i class="fas fa-shield-alt mr-2"></i>Güvenlik Ayarlarını Aç
+          <i class="fas fa-shield-alt mr-2"></i>Guvenlik Ayarlarini Ac
         </button>
       </div>
     </div>
 
   </div>
 
-  <!-- ── Bottom Nav (Mobile) ── -->
+  <!-- ÔöÇÔöÇ Bottom Nav (Mobile) ÔöÇÔöÇ -->
   <nav class="bottom-nav" id="bottom-nav">
     <!-- Dinamik olarak doldurulur -->
   </nav>
 
-  <!-- ═══════════════════════════════════════════════
-       Güvenlik / 2FA Ayarları Modalı
-  ═══════════════════════════════════════════════ -->
+  <!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+       G├╝venlik / 2FA Ayarlar─▒ Modal─▒
+  ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
   <div id="security-modal" class="modal-overlay">
     <div class="modal-box">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
@@ -307,19 +307,19 @@
             <i class="fas fa-shield-halved" style="color:#4f46e5;font-size:16px;"></i>
           </div>
           <div>
-            <h3 style="font-weight:700;color:#111827;font-size:15px;margin:0;">Güvenlik Ayarları</h3>
+            <h3 style="font-weight:700;color:#111827;font-size:15px;margin:0;">Guvenlik Ayarlari</h3>
             <p style="font-size:11px;color:#6b7280;margin:0;" id="sec-username-label"></p>
           </div>
         </div>
         <button onclick="closeSecurityModal()" style="background:none;border:none;font-size:22px;color:#9ca3af;cursor:pointer;">&times;</button>
       </div>
 
-      <!-- 2FA Toggle Kartı -->
+      <!-- 2FA Toggle Karti -->
       <div style="background:#f8fafc;border-radius:14px;border:1.5px solid #e2e8f0;padding:16px;margin-bottom:16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
           <div>
-            <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 2px;">İki Adımlı Doğrulama (2FA)</p>
-            <p style="font-size:11px;color:#64748b;margin:0;" id="sec-2fa-desc">Girişte e-postanıza kod gönderilir</p>
+            <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 2px;">Iki Adimli Dogrulama (2FA)</p>
+            <p style="font-size:11px;color:#64748b;margin:0;" id="sec-2fa-desc">Giriste e-postaniza kod gonderilir</p>
           </div>
           <label class="toggle-track">
             <input type="checkbox" id="sec-2fa-toggle" onchange="onTwoFaToggle(this.checked)">
@@ -328,49 +328,49 @@
           </label>
         </div>
 
-        <!-- E-posta girişi -->
+        <!-- E-posta girisi -->
         <div id="sec-email-row" style="display:none;">
-          <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">E-posta Adresi (kod buraya gönderilir)</label>
+          <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">E-posta Adresi (kod buraya gonderilir)</label>
           <input id="sec-email-input" type="email" placeholder="ornek@mail.com"
             style="width:100%;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;box-sizing:border-box;"
             onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
-          <p style="font-size:10px;color:#94a3b8;margin:4px 0 0;">2FA aktif etmek için geçerli bir e-posta girilmeli.</p>
+          <p style="font-size:10px;color:#94a3b8;margin:4px 0 0;">2FA aktif etmek icin gecerli bir e-posta girilmeli.</p>
         </div>
 
-        <!-- Yöntem seçici -->
+        <!-- Yontem secici -->
         <div id="sec-2fa-method-row" style="display:none;margin-top:8px;">
-          <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">Doğrulama Yöntemi</label>
+          <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">Dogrulama Yontemi</label>
           <div style="display:flex;gap:8px;">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;flex:1;" id="sec-method-email-label">
-              <input type="radio" name="sec-2fa-method" value="email" id="sec-method-email" onchange="onMethodChange('email')" checked> 📧 E-posta OTP
+              <input type="radio" name="sec-2fa-method" value="email" id="sec-method-email" onchange="onMethodChange('email')" checked> E-posta OTP
             </label>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;flex:1;" id="sec-method-totp-label">
-              <input type="radio" name="sec-2fa-method" value="totp" id="sec-method-totp" onchange="onMethodChange('totp')"> 🔐 Authenticator
+              <input type="radio" name="sec-2fa-method" value="totp" id="sec-method-totp" onchange="onMethodChange('totp')"> Authenticator
             </label>
           </div>
         </div>
 
         <!-- TOTP QR Kod -->
         <div id="sec-totp-row" style="display:none;margin-top:10px;text-align:center;">
-          <p style="font-size:12px;color:#475569;margin:0 0 8px;">Google Authenticator uygulamasını açın ve QR kodu okutun:</p>
+          <p style="font-size:12px;color:#475569;margin:0 0 8px;">Google Authenticator uygulamasini acin ve QR kodu okutun:</p>
           <img id="sec-totp-qr" src="" alt="QR Kod" style="width:160px;height:160px;border:1px solid #e2e8f0;border-radius:8px;"/>
-          <p style="font-size:10px;color:#94a3b8;margin:6px 0 0;">QR okutulduktan sonra uygulamadaki 6 haneli kodu girin ve "Etkinleştir" butonuna basın.</p>
+          <p style="font-size:10px;color:#94a3b8;margin:6px 0 0;">QR okutulduktan sonra uygulamadaki 6 haneli kodu girin ve "Etkinlestir" butonuna basin.</p>
           <input id="sec-totp-code" type="text" placeholder="6 haneli kod" maxlength="6"
             style="width:140px;border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:16px;color:#1e293b;outline:none;text-align:center;margin-top:8px;letter-spacing:4px;"
             onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
-          <br><button onclick="activateTotp()" style="margin-top:8px;padding:8px 18px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;">✅ Etkinleştir</button>
+          <br><button onclick="activateTotp()" style="margin-top:8px;padding:8px 18px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;">Etkinlestir</button>
           <p id="sec-totp-msg" style="font-size:11px;color:#16a34a;margin:4px 0 0;display:none;"></p>
         </div>
       </div>
 
-      <!-- Şifre Değiştir -->
+      <!-- Sifre Degistir -->
       <div style="background:#f8fafc;border-radius:14px;border:1.5px solid #e2e8f0;padding:14px;margin-bottom:16px;">
-        <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 6px;">Şifre Değiştir</p>
+        <p style="font-weight:600;color:#1e293b;font-size:13px;margin:0 0 6px;">Sifre Degistir</p>
         <div style="display:flex;flex-direction:column;gap:8px;">
-          <input id="sec-old-pw" type="password" placeholder="Mevcut şifre" autocomplete="current-password"
+          <input id="sec-old-pw" type="password" placeholder="Mevcut sifre" autocomplete="current-password"
             style="border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;"
             onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
-          <input id="sec-new-pw" type="password" placeholder="Yeni şifre (min. 6 karakter)" autocomplete="new-password"
+          <input id="sec-new-pw" type="password" placeholder="Yeni sifre (min. 6 karakter)" autocomplete="new-password"
             style="border:1.5px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:13px;color:#1e293b;outline:none;"
             onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
         </div>
@@ -384,52 +384,62 @@
   </div>
 
   <script>
-  // ── Auth kontrol ─────────────────────────────────────────────
+  // ÔöÇÔöÇ Auth kontrol ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  const PANEL_BASE = window.location.pathname.startsWith('/technician') ? '/technician' : '/panel';
+  const PANEL_LOGIN = `${PANEL_BASE}/login`;
   const API_TOKEN = localStorage.getItem('token');
   const API_BASE_OVERRIDE = (localStorage.getItem('panel_api_base') || '').trim();
   const apiPath = (path) => (API_BASE_OVERRIDE ? API_BASE_OVERRIDE.replace(/\/$/, '') : '') + path;
-  if (!API_TOKEN) window.location.href = '/panel/login';
+  if (!API_TOKEN) window.location.href = PANEL_LOGIN;
 
   let _currentUser = null;
   let _incidentFilter = 'all';
   let _allIncidents = [];
   let _allConversations = [];
 
-  // ── Kullanıcı bilgilerini yükle ──────────────────────────────
+  // ÔöÇÔöÇ Kullan─▒c─▒ bilgilerini y├╝kle ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   async function loadCurrentUser() {
     try {
       const res = await fetch(apiPath('/crm/auth/check'), {
         headers: { Authorization: 'Bearer ' + API_TOKEN }
       });
-      if (!res.ok) { localStorage.removeItem('token'); window.location.href = '/panel/login'; return; }
+      if (!res.ok) { localStorage.removeItem('token'); window.location.href = PANEL_LOGIN; return; }
       const data = await res.json();
       _currentUser = data.user || {};
+
+      // Technician route must use technician account to avoid stale admin/viewer token confusion.
+      if (PANEL_BASE === '/technician' && _currentUser.role !== 'field_tech') {
+        localStorage.removeItem('token');
+        window.location.href = PANEL_LOGIN;
+        return;
+      }
+
       buildUI();
     } catch (e) {
       localStorage.removeItem('token');
-      window.location.href = '/panel/login';
+      window.location.href = PANEL_LOGIN;
     }
   }
 
   function buildUI() {
     const u = _currentUser;
-    const name = u.displayName || u.username || 'Kullanıcı';
+    const name = u.displayName || u.username || 'Kullanici';
     document.getElementById('topbar-username').textContent = '@' + (u.username || '');
     document.getElementById('sb-username-label').textContent = '@' + (u.username || '');
 
-    // Dashboard hoşgeldin
+    // Dashboard hos geldin
     document.getElementById('dash-welcome').textContent =
-      'Merhaba, ' + name + '! Panel üzerinden görevlerinizi yönetebilirsiniz.';
+      'Merhaba, ' + name + '! Panel uzerinden gorevlerinizi yonetebilirsiniz.';
 
     const perms = u.permissions || {};
     const isAdmin = u.role === 'admin';
 
-    // Tab tanımları — izinlere göre filtrelenecek
+    // Tab tanimlari - izinlere gore filtrelenecek
     const tabs = [
       { id: 'dashboard', icon: 'fa-home', label: 'Anasayfa', always: true },
-      { id: 'incidents', icon: 'fa-triangle-exclamation', label: 'Arızalar', perm: isAdmin || perms.canViewIncidents },
+      { id: 'incidents', icon: 'fa-triangle-exclamation', label: 'Arizalar', perm: isAdmin || perms.canViewIncidents },
       { id: 'conversations', icon: 'fa-comments', label: 'Sohbetler', perm: isAdmin || perms.canViewConversations },
-      { id: 'security', icon: 'fa-shield-alt', label: 'Güvenlik', always: true },
+      { id: 'security', icon: 'fa-shield-alt', label: 'Guvenlik', always: true },
     ].filter(t => t.always || t.perm);
 
     // Build bottom nav
@@ -449,7 +459,7 @@
       </button>
     `).join('');
 
-    // Desktop sidebar göster
+    // Desktop sidebar goster
     if (window.innerWidth >= 768) {
       document.getElementById('sidebar').style.display = 'flex';
       document.getElementById('sidebar').style.flexDirection = 'column';
@@ -458,7 +468,7 @@
     // Dashboard istatistikler
     loadDashboardStats(perms, isAdmin);
 
-    // Admin ise admin paneline yönlendirme seçeneği göster
+    // Admin ise admin paneline yonlendirme secenegi goster
     if (isAdmin) {
       const adminCard = document.createElement('div');
       adminCard.className = 'card';
@@ -470,10 +480,10 @@
           </div>
           <div>
             <div style="font-weight:600;font-size:13px;color:#1e293b;">Admin Paneli</div>
-            <div style="font-size:11px;color:#64748b;">Tam yönetim erişimi için admin paneline gidin</div>
+            <div style="font-size:11px;color:#64748b;">Tam yonetim erisimi icin admin paneline gidin</div>
           </div>
           <a href="/admin" style="margin-left:auto;background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;">
-            Aç <i class="fas fa-arrow-right ml-1"></i>
+            Ac <i class="fas fa-arrow-right ml-1"></i>
           </a>
         </div>
       `;
@@ -492,7 +502,7 @@
         if (r.ok) {
           const d = await r.json();
           const count = Number(d?.total || (Array.isArray(d?.data) ? d.data.length : 0));
-          stats.push({ label: 'Toplam Arıza', value: count, icon: 'fa-triangle-exclamation', color: '#f59e0b' });
+          stats.push({ label: 'Toplam Ariza', value: count, icon: 'fa-triangle-exclamation', color: '#f59e0b' });
         }
       }
       if (isAdmin || perms.canViewConversations) {
@@ -518,7 +528,7 @@
     `).join('');
   }
 
-  // ── Tab geçişi ────────────────────────────────────────────────
+  // ÔöÇÔöÇ Tab ge├ği┼şi ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   function switchTab(tabId) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
@@ -532,18 +542,18 @@
     if (tabId === 'conversations') loadConversations();
   }
 
-  // ── Arızalar ──────────────────────────────────────────────────
+  // ÔöÇÔöÇ Ar─▒zalar ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   async function loadIncidents() {
     const el = document.getElementById('incidents-list');
-    el.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>';
+    el.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yukleniyor...</div>';
     try {
       const r = await fetch(apiPath('/crm/incidents?limit=50'), { headers: { Authorization: 'Bearer ' + API_TOKEN } });
-      if (!r.ok) throw new Error('Yüklenemedi');
+      if (!r.ok) throw new Error('Yuklenemedi');
       const d = await r.json();
       _allIncidents = d.incidents || d.data || [];
       renderIncidents();
     } catch (e) {
-      el.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Arızalar yüklenemedi.</p></div>`;
+      el.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Arizalar yuklenemedi.</p></div>`;
     }
   }
 
@@ -560,15 +570,15 @@
       (i.issueSummary || i.issue || '').toLowerCase().includes(search)
     );
     if (list.length === 0) {
-      el.innerHTML = '<div class="empty-state"><i class="fas fa-folder-open"></i><p>Arıza bulunamadı.</p></div>';
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-folder-open"></i><p>Ariza bulunamadi.</p></div>';
       return;
     }
     const statusMap = {
-      ALINDI: { label: 'Açık', cls: 'badge-red' },
-      INCELEMEDE: { label: 'İncelemede', cls: 'badge-yellow' },
+      ALINDI: { label: 'Acik', cls: 'badge-red' },
+      INCELEMEDE: { label: 'Incelemede', cls: 'badge-yellow' },
       ISLEME_ALINDI: { label: 'Devam Ediyor', cls: 'badge-yellow' },
-      COZUMLENDI: { label: 'Çözüldü', cls: 'badge-green' },
-      KAPATILDI: { label: 'Kapatıldı', cls: 'badge-gray' },
+      COZUMLENDI: { label: 'Cozuldu', cls: 'badge-green' },
+      KAPATILDI: { label: 'Kapatildi', cls: 'badge-gray' },
     };
     el.innerHTML = list.map(inc => {
       const s = statusMap[inc.status] || { label: inc.status, cls: 'badge-blue' };
@@ -577,8 +587,8 @@
       return `
         <div class="list-item" onclick="openIncidentDetail('${incidentKey}')">
           <div style="flex:1;min-width:0;">
-            <div class="list-item-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(inc.issueSummary || inc.issue || 'Arıza kaydı')}</div>
-            <div class="list-item-sub">${escHtml((inc.customerName || 'Bilinmiyor') + ' · #' + (inc.incidentId || inc.id || ''))}${date ? ' · ' + date : ''}</div>
+            <div class="list-item-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(inc.issueSummary || inc.issue || 'Ariza kaydi')}</div>
+            <div class="list-item-sub">${escHtml((inc.customerName || 'Bilinmiyor') + ' - #' + (inc.incidentId || inc.id || ''))}${date ? ' - ' + date : ''}</div>
           </div>
           <div class="list-item-actions">
             <span class="badge ${s.cls}">${s.label}</span>
@@ -598,18 +608,18 @@
 
   function filterIncidents() { renderIncidents(); }
 
-  // ── Sohbetler ─────────────────────────────────────────────────
+  // ÔöÇÔöÇ Sohbetler ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   async function loadConversations() {
     const el = document.getElementById('conversations-list');
-    el.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yükleniyor…</div>';
+    el.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i> Yukleniyor...</div>';
     try {
       const r = await fetch(apiPath('/crm/inbox?page=1&limit=50'), { headers: { Authorization: 'Bearer ' + API_TOKEN } });
-      if (!r.ok) throw new Error('Yüklenemedi');
+      if (!r.ok) throw new Error('Yuklenemedi');
       const d = await r.json();
       _allConversations = Array.isArray(d) ? d : (d.conversations || d.data || []);
       renderConversations();
     } catch (e) {
-      el.innerHTML = `<div class="empty-state"><i class="fas fa-comments"></i><p>Sohbetler yüklenemedi.</p></div>`;
+      el.innerHTML = `<div class="empty-state"><i class="fas fa-comments"></i><p>Sohbetler yuklenemedi.</p></div>`;
     }
   }
 
@@ -623,7 +633,7 @@
       (c.phoneNumber || c.phone || '').toLowerCase().includes(search)
     );
     if (list.length === 0) {
-      el.innerHTML = '<div class="empty-state"><i class="fas fa-comments"></i><p>Sohbet bulunamadı.</p></div>';
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-comments"></i><p>Sohbet bulunamadi.</p></div>';
       return;
     }
     el.innerHTML = list.map(c => {
@@ -697,10 +707,75 @@
     if (overlay) overlay.style.display = 'none';
   }
 
+  function resolveImageUrl(url) {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+  }
+
+  function closeIncidentModal() {
+    const modal = document.getElementById('incident-detail-modal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async function updateIncidentStatus(incidentId) {
+    const statusEl = document.getElementById('modal-inc-status');
+    const noteEl = document.getElementById('modal-inc-note');
+    const mediaEl = document.getElementById('modal-inc-media');
+    const msgEl = document.getElementById('modal-inc-msg');
+
+    const status = String(statusEl?.value || '').trim();
+    const note = String(noteEl?.value || '').trim();
+    const mediaFile = mediaEl?.files?.[0];
+
+    if (!note) {
+      if (msgEl) msgEl.textContent = 'Durum notu zorunludur.';
+      return;
+    }
+    if (status === 'KAPATILDI' && !mediaFile) {
+      if (msgEl) msgEl.textContent = 'Kayit kapatilirken resim veya video zorunludur.';
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('status', status);
+    formData.append('note', note);
+    if (mediaFile) formData.append('media', mediaFile);
+
+    try {
+      if (msgEl) msgEl.textContent = 'Guncelleniyor...';
+      const res = await fetch(apiPath(`/crm/incidents/${encodeURIComponent(incidentId)}/status`), {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + API_TOKEN },
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (msgEl) msgEl.textContent = data.error || 'Durum guncellenemedi.';
+        return;
+      }
+      if (msgEl) msgEl.textContent = 'Durum guncellendi.';
+      await loadIncidents();
+      closeIncidentModal();
+    } catch (_err) {
+      if (msgEl) msgEl.textContent = 'Baglanti hatasi olustu.';
+    }
+  }
+
   function openIncidentDetail(incidentId) {
     const incident = _allIncidents.find(item => String(item.incidentId || item.id || '') === String(incidentId || ''));
     if (!incident) return;
-    const bodyHtml = `
+
+    const modal = document.getElementById('incident-detail-modal');
+    const body = document.getElementById('incident-detail-body');
+    if (!modal || !body) return;
+
+    const images = Array.isArray(incident.images) ? incident.images : [];
+    const imageHtml = images.length
+      ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">${images.map((u, i) => `<a href="${escHtml(resolveImageUrl(u))}" target="_blank" rel="noopener"><img src="${escHtml(resolveImageUrl(u))}" alt="Resim ${i + 1}" style="width:88px;height:88px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;"></a>`).join('')}</div>`
+      : `<div style="font-size:12px;color:#64748b;">Resim bulunmuyor.</div>`;
+
+    body.innerHTML = `
       <div style="display:grid;gap:10px;">
         ${detailValue('Ariza No', '#' + (incident.incidentId || incident.id || '-'))}
         ${detailValue('Durum', incident.status || 'Belirtilmedi')}
@@ -708,12 +783,24 @@
         ${detailValue('Telefon', incident.customerPhone || incident.phone || 'Belirtilmedi')}
         ${detailValue('Adres', incident.address || incident.location || 'Belirtilmedi')}
         ${detailValue('Konu', incident.issueSummary || incident.issue || incident.title || 'Belirtilmedi')}
-        ${detailValue('Aciklama', incident.description || incident.notes || 'Belirtilmedi')}
-        ${detailValue('Olusturma Tarihi', formatDateTime(incident.createdAt))}
-        ${detailValue('Guncelleme Tarihi', formatDateTime(incident.updatedAt))}
+      </div>
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;font-weight:700;color:#334155;margin-bottom:8px;">Ariza Resimleri</div>
+        ${imageHtml}
+      </div>
+      <div style="margin-top:14px;border-top:1px solid #e2e8f0;padding-top:12px;display:grid;gap:8px;">
+        <div style="font-size:12px;font-weight:700;color:#334155;">Durum Guncelle</div>
+        <select id="modal-inc-status" style="border:1px solid #e2e8f0;border-radius:8px;padding:8px;">
+          ${['ALINDI','INCELEMEDE','ISLEME_ALINDI','COZUMLENDI','KAPATILDI'].map(s => `<option value="${s}" ${incident.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+        <textarea id="modal-inc-note" placeholder="Durum notu" style="border:1px solid #e2e8f0;border-radius:8px;padding:8px;min-height:72px;"></textarea>
+        <input id="modal-inc-media" type="file" accept="image/*,video/*">
+        <div id="modal-inc-msg" style="font-size:12px;color:#b91c1c;"></div>
+        <button type="button" class="detail-btn" onclick="updateIncidentStatus('${escHtml(String(incident.incidentId || incident.id || ''))}')">Guncelle</button>
       </div>
     `;
-    openDetailModal('Ariza Detayi', bodyHtml);
+
+    modal.style.display = 'flex';
   }
 
   function openConversationDetail(phone) {
@@ -734,13 +821,16 @@
     openDetailModal('Sohbet Detayi', bodyHtml);
   }
 
-  // ── Çıkış ─────────────────────────────────────────────────────
+  // ÔöÇÔöÇ ├ç─▒k─▒┼ş ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   function doLogout() {
     localStorage.removeItem('token');
-    window.location.href = '/panel/login';
+    localStorage.removeItem('panel_api_base');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('panel_api_base');
+    window.location.replace(PANEL_LOGIN);
   }
 
-  // ── Güvenlik Modal ────────────────────────────────────────────
+  // ÔöÇÔöÇ G├╝venlik Modal ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   function openSecurityModal() {
     const modal = document.getElementById('security-modal');
     modal.style.display = 'flex';
@@ -797,12 +887,12 @@
     if (method === 'totp') {
       if (emailRow) emailRow.style.display = 'none';
       if (totpRow)  totpRow.style.display  = 'block';
-      if (desc) desc.textContent = 'Girişte Google Authenticator kodu istenir';
+      if (desc) desc.textContent = 'Giriste Google Authenticator kodu istenir';
       if (document.getElementById('sec-totp-qr').src === location.origin + '/') loadTotpQr();
     } else {
       if (emailRow) emailRow.style.display = 'block';
       if (totpRow)  totpRow.style.display  = 'none';
-      if (desc) desc.textContent = 'Girişte e-postanıza kod gönderilir';
+      if (desc) desc.textContent = 'Giriste e-postaniza kod gonderilir';
     }
   }
 
@@ -825,7 +915,7 @@
     });
     const data = await res.json();
     msg.style.display = 'block';
-    if (res.ok) { msg.style.color='#16a34a'; msg.textContent='✅ Google Authenticator aktif edildi!'; }
+    if (res.ok) { msg.style.color='#16a34a'; msg.textContent='Google Authenticator aktif edildi!'; }
     else { msg.style.color='#dc2626'; msg.textContent = data.error || 'Hata.'; }
   }
 
@@ -842,7 +932,7 @@
 
     if (twoFaEnabled && !email) {
       msg.style.color = '#ef4444';
-      msg.textContent = '2FA için e-posta adresi giriniz.';
+      msg.textContent = '2FA icin e-posta adresi giriniz.';
       return;
     }
 
@@ -853,21 +943,21 @@
         body: JSON.stringify({ enabled: twoFaEnabled, email: twoFaEnabled ? email : undefined }),
       });
       const d2fa = await r2fa.json();
-      if (!r2fa.ok) throw new Error(d2fa.error || '2FA ayarlanamadı.');
+      if (!r2fa.ok) throw new Error(d2fa.error || '2FA ayarlanamadi.');
 
       if (oldPw && newPw) {
-        if (newPw.length < 6) { msg.style.color='#ef4444'; msg.textContent='Yeni şifre en az 6 karakter olmalı.'; return; }
+        if (newPw.length < 6) { msg.style.color='#ef4444'; msg.textContent='Yeni sifre en az 6 karakter olmali.'; return; }
         const rpw = await fetch(apiPath('/crm/users/change-password'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw }),
         });
         const dpw = await rpw.json();
-        if (!rpw.ok) throw new Error(dpw.error || 'Şifre değiştirilemedi.');
+        if (!rpw.ok) throw new Error(dpw.error || 'Sifre degistirilemedi.');
       }
 
       msg.style.color = '#22c55e';
-      msg.textContent = '✓ Ayarlar kaydedildi.';
+      msg.textContent = 'Ayarlar kaydedildi.';
       document.getElementById('sec-old-pw').value = '';
       document.getElementById('sec-new-pw').value = '';
     } catch (err) {
@@ -876,11 +966,11 @@
     }
   }
 
-  // Modal dışına tıklayınca kapat
+  // Modal d─▒┼ş─▒na t─▒klay─▒nca kapat
   document.getElementById('security-modal').addEventListener('click', function(e) {
     if (e.target === this) closeSecurityModal();
   });
-  // ── Yardımcı ─────────────────────────────────────────────────
+  // ÔöÇÔöÇ Yard─▒mc─▒ ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   function escHtml(str) {
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -894,13 +984,24 @@
     }
   });
 
-  // ── İlk yükleme ──────────────────────────────────────────────
+  // ÔöÇÔöÇ ─░lk y├╝kleme ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   loadCurrentUser();
   </script>
 
   <!-- Detail Modal -->
   <div id="detail-modal-overlay" class="modal-overlay" style="display:none;" onclick="if (event.target === this) closeDetailModal();">
     <div class="modal-box" id="detail-modal-content" style="max-width:500px;"></div>
+  </div>
+
+  <!-- Incident Detail Modal -->
+  <div id="incident-detail-modal" class="modal-overlay" style="display:none;" onclick="if (event.target === this) closeIncidentModal();">
+    <div class="modal-box" style="max-width:560px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+        <div style="font-size:16px;font-weight:700;color:#0f172a;">Ariza Detayi</div>
+        <button type="button" onclick="closeIncidentModal()" style="border:none;background:#f1f5f9;color:#475569;border-radius:10px;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;">&times;</button>
+      </div>
+      <div id="incident-detail-body"></div>
+    </div>
   </div>
 </body>
 </html>

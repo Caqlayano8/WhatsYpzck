@@ -26,6 +26,19 @@ export interface IIncident extends Document {
     photoCoords?: { lat: number; lng: number };
     locationCoords?: { lat: number; lng: number };
     images?: string[];
+    assignedTechnician?: {
+        userId?: string;
+        username?: string;
+        displayName?: string;
+        phone?: string;
+        assignedAt?: Date;
+        assignedByUserId?: string;
+        assignedByName?: string;
+    };
+    assignment?: {
+        method?: 'manual' | 'auto-area';
+        matchKeywords?: string[];
+    };
     // Archive ve retention fields
     isArchived?: boolean;
     archivedAt?: Date;
@@ -69,6 +82,19 @@ const incidentSchema = new Schema<IIncident>({
     photoCoords: { lat: { type: Number }, lng: { type: Number } },
     locationCoords: { lat: { type: Number }, lng: { type: Number } },
     images: [{ type: String }],
+    assignedTechnician: {
+        userId: { type: String, default: '' },
+        username: { type: String, default: '' },
+        displayName: { type: String, default: '' },
+        phone: { type: String, default: '' },
+        assignedAt: { type: Date, default: null },
+        assignedByUserId: { type: String, default: '' },
+        assignedByName: { type: String, default: '' }
+    },
+    assignment: {
+        method: { type: String, enum: ['manual', 'auto-area'], default: 'manual' },
+        matchKeywords: [{ type: String }]
+    },
     // Archive ve retention fields - ASLA SİLİNMEYECEK, TARİH BAZLI SAKLANACAK
     isArchived: { type: Boolean, default: false, index: true },
     archivedAt: { type: Date, default: null },

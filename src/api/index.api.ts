@@ -20,6 +20,20 @@ export default function (botManager: BotManager) {
 
     const client = botManager.client;
     const qrData = botManager.qrData;
+
+    const getEffectiveQrState = () => {
+        const status = botManager.getStatus();
+        const connected = status.status === "connected";
+        const qrCodeData = status.status === "scanning"
+            ? (status.qrCode || qrData.qrCodeData || "")
+            : (qrData.qrCodeData || "");
+
+        return {
+            qrScanned: connected || qrData.qrScanned,
+            qrCodeData,
+            connected,
+        };
+    };
     
     router.get("/", (req, res) => {
         logger.info("GET /");
@@ -34,9 +48,10 @@ export default function (botManager: BotManager) {
     router.get("/status", (req, res) => {
         logger.info("GET /status");
         const siteOrigin = getSiteOrigin(req);
+        const qrState = getEffectiveQrState();
         res.render("index", {
-            qrScanned: qrData.qrScanned,
-            qrCodeData: qrData.qrCodeData,
+            qrScanned: qrState.qrScanned,
+            qrCodeData: qrState.qrCodeData,
             pageUrl: `${siteOrigin}/status`,
             imageUrl: `${siteOrigin}/public/favicon.png`,
         });
@@ -44,14 +59,15 @@ export default function (botManager: BotManager) {
 
     router.get("/qr", (req, res) => {
         logger.info("GET /qr");
+        const qrState = getEffectiveQrState();
 
-        if (qrData.qrScanned) {
+        if (qrState.qrScanned) {
             return res.redirect("/status");
         }
 
         res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
         res.render("qr", {
-            qrCodeData: qrData.qrCodeData,
+            qrCodeData: qrState.qrCodeData,
         });
     });
 
@@ -87,19 +103,21 @@ export default function (botManager: BotManager) {
     });
 
     router.get("/qr-status", (_req, res) => {
-        res.json({ qrScanned: qrData.qrScanned, qrCodeData: qrData.qrCodeData });
+        const qrState = getEffectiveQrState();
+        res.json({ qrScanned: qrState.qrScanned, qrCodeData: qrState.qrCodeData });
     });
 
     router.get("/health", async (_req, res) => {
         try {
             const isClientReady = client && client.info ? true : false;
+            const qrState = getEffectiveQrState();
 
             const healthStatus = {
                 status: isClientReady ? "healthy" : "unhealthy",
                 clientReady: isClientReady,
                 uptime: process.uptime(),
                 memoryUsage: process.memoryUsage(),
-                qrScanned: qrData.qrScanned,
+                qrScanned: qrState.qrScanned,
                 botContact: client && client.info ? client.info.wid.user : null,
                 botPushName: client && client.info ? client.info.pushname : null,
                 botPlatform: client && client.info ? client.info.platform : null,

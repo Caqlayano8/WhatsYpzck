@@ -148,7 +148,7 @@ function renderIncidents(list) {
           <select id="incident-status-${escHtml(row.id || '')}" class="field py-1 text-xs" style="min-width:140px;">
             ${optionsHtml}
           </select>
-          <button onclick="updateIncidentStatus('${escHtml(row.id || '')}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-xs font-semibold">Kaydet</button>
+          <button onclick="openIncidentStatusModal('${escHtml(row.id || '')}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-xs font-semibold">Kaydet</button>
           <button onclick="openIncidentDetail('${escHtml(row.id || '')}')"  class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-lg text-xs font-semibold border border-slate-200">Detay</button>
         </div>
       </td>
@@ -157,19 +157,102 @@ function renderIncidents(list) {
   });
 }
 
-async function updateIncidentStatus(incidentId) {
+function closeIncidentStatusModal() {
+  const modal = document.getElementById('incident-status-modal');
+  const form = document.getElementById('incident-status-form');
+  if (form) form.reset();
+  if (modal) modal.classList.add('hidden');
+}
+
+function openIncidentStatusModal(incidentId) {
   const selectEl = document.getElementById(`incident-status-${incidentId}`);
   if (!selectEl) return;
 
   const status = selectEl.value;
-  const note = prompt('Durum notu (opsiyonel):', '') || '';
+
+  const modal = document.getElementById('incident-status-modal');
+  const incidentIdEl = document.getElementById('incident-status-id');
+  const statusEl = document.getElementById('incident-status-value');
+  const statusLabelEl = document.getElementById('incident-status-selected');
+  const noteEl = document.getElementById('incident-status-note');
+
+  if (!modal || !incidentIdEl || !statusEl || !statusLabelEl || !noteEl) return;
+
+  incidentIdEl.value = incidentId;
+  statusEl.value = status;
+  statusLabelEl.textContent = incidentStatusLabel(status);
+  noteEl.value = '';
+
+  const mediaEl = document.getElementById('incident-status-media');
+  if (mediaEl) mediaEl.value = '';
+
+  modal.classList.remove('hidden');
+}
+
+async function submitIncidentStatusForm(event) {
+  event.preventDefault();
+
+  const incidentId = document.getElementById('incident-status-id')?.value || '';
+  const status = document.getElementById('incident-status-value')?.value || '';
+  const note = (document.getElementById('incident-status-note')?.value || '').trim();
+  const mediaInput = document.getElementById('incident-status-media');
+  const mediaFile = mediaInput?.files?.[0] || null;
+
+  if (!incidentId || !status) {
+    showToast('Kayit bilgisi eksik', 'warning');
+    return;
+  }
+
+  if (!note) {
+    showToast('Durum notu zorunludur', 'warning');
+    return;
+  }
+
+  if (status === 'KAPATILDI' && !mediaFile) {
+    showToast('Kaydi kapatirken resim veya video eklemek zorunlu', 'warning');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('status', status);
+  formData.append('note', note);
+  if (mediaFile) {
+    formData.append('media', mediaFile);
+  }
 
   try {
-    await apiFetch(`/crm/incidents/${encodeURIComponent(incidentId)}/status`, 'PATCH', { status, note });
+    const res = await fetch(`/crm/incidents/${encodeURIComponent(incidentId)}/status`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      let message = 'Ariza durumu guncellenemedi';
+      try {
+        const err = await res.json();
+        if (err?.error) message = String(err.error);
+      } catch {
+        // ignore
+      }
+      throw new Error(message);
+    }
+
     showToast('Ariza durumu guncellendi', 'success');
+    closeIncidentStatusModal();
     await loadIncidents();
-  } catch {
-    showToast('Ariza durumu guncellenemedi', 'error');
+  } catch (error) {
+    showToast(error?.message || 'Ariza durumu guncellenemedi', 'error');
+  }
+}
+
+if (!window.__incidentStatusFormBound) {
+  const form = document.getElementById('incident-status-form');
+  if (form) {
+    form.addEventListener('submit', submitIncidentStatusForm);
+    window.__incidentStatusFormBound = true;
   }
 }
 
@@ -281,4 +364,6 @@ function openIncidentDetail(incidentId) {
   document.body.appendChild(modal);
 }
 window.openIncidentDetail = openIncidentDetail;
-window.updateIncidentStatus = updateIncidentStatus;
+window.updateIncidentStatus = openIncidentStatusModal;
+window.openIncidentStatusModal = openIncidentStatusModal;
+window.closeIncidentStatusModal = closeIncidentStatusModal;

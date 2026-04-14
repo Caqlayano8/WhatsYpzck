@@ -56,13 +56,26 @@ function defaultPermissions(role: UserRole) {
 }
 
 export class AuthService {
-  static async register(username: string, password: string, role: UserRole = 'viewer', displayName?: string, phone?: string) {
+  static async register(
+    username: string,
+    password: string,
+    role: UserRole = 'viewer',
+    displayName?: string,
+    phone?: string,
+    routing?: {
+      city?: string;
+      district?: string;
+      neighborhoods?: string[];
+      streets?: string[];
+      areaKeywords?: string[];
+    }
+  ) {
     const existingUser = await UserModel.findOne({ username });
     if (existingUser) throw new Error('Kullanıcı adı zaten mevcut');
 
     const resolvedRole = normalizeUserRole(role);
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new UserModel({ username, password: hashedPassword, role: resolvedRole, displayName, phone });
+    const user = new UserModel({ username, password: hashedPassword, role: resolvedRole, displayName, phone, routing });
     await user.save();
     return user;
   }

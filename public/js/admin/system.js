@@ -1,3 +1,30 @@
+// Agresif Mod ve Kısıtlamalar
+window.toggleAggressiveMode = async function () {
+  try {
+    await apiFetch('/crm/settings/aggressive-mode', 'POST');
+    showToast('Agresif mod değiştirildi', 'success');
+    loadSettings();
+  } catch {
+    showToast('Agresif mod değiştirilemedi', 'error');
+  }
+};
+
+window.removeAllRestrictions = async function () {
+  try {
+    await apiFetch('/crm/settings/remove-restrictions', 'POST');
+    showToast('Tüm kısıtlamalar kaldırıldı', 'success');
+    loadSettings();
+  } catch {
+    showToast('Kısıtlamalar kaldırılamadı', 'error');
+  }
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+  const btnAggressive = document.getElementById('btn-aggressive-mode');
+  if (btnAggressive) btnAggressive.onclick = window.toggleAggressiveMode;
+  const btnRemove = document.getElementById('btn-remove-restrictions');
+  if (btnRemove) btnRemove.onclick = window.removeAllRestrictions;
+});
 // Commands
 
 async function loadCommands() {
@@ -66,6 +93,72 @@ const USER_ROLE_META = {
   field_tech: { label: 'Teknisyen', badge: 'bg-sky-100 text-sky-700' },
   viewer: { label: 'Kullanici', badge: 'bg-emerald-100 text-emerald-700' },
 };
+
+const TECH_PERMISSION_KEYS = [
+  'canViewIncidents',
+  'canUpdateIncidents',
+  'canViewConversations',
+  'canSendMessages',
+  'canViewReports',
+];
+
+function roleDefaultPermissions(role) {
+  if (role === 'admin') {
+    return {
+      canViewIncidents: true,
+      canUpdateIncidents: true,
+      canViewConversations: true,
+      canSendMessages: true,
+      canViewReports: true,
+    };
+  }
+  if (role === 'field_tech') {
+    return {
+      canViewIncidents: true,
+      canUpdateIncidents: true,
+      canViewConversations: false,
+      canSendMessages: false,
+      canViewReports: true,
+    };
+  }
+  return {
+    canViewIncidents: true,
+    canUpdateIncidents: false,
+    canViewConversations: false,
+    canSendMessages: false,
+    canViewReports: true,
+  };
+}
+
+function setUserPermissionControls(role, permissions = {}) {
+  const wrap = document.getElementById('user-permissions-wrap');
+  if (!wrap) return;
+
+  const defaults = roleDefaultPermissions(role);
+  const show = role === 'field_tech';
+  wrap.classList.toggle('hidden', !show);
+
+  TECH_PERMISSION_KEYS.forEach((key) => {
+    const el = document.getElementById(`user-perm-${key}`);
+    if (!el) return;
+    const value = permissions[key] !== undefined ? permissions[key] : defaults[key];
+    el.checked = Boolean(value);
+    el.disabled = !show;
+  });
+}
+
+function readUserPermissionControls(role) {
+  const defaults = roleDefaultPermissions(role);
+  if (role !== 'field_tech') return defaults;
+
+  const out = { ...defaults };
+  TECH_PERMISSION_KEYS.forEach((key) => {
+    const el = document.getElementById(`user-perm-${key}`);
+    if (!el) return;
+    out[key] = Boolean(el.checked);
+  });
+  return out;
+}
 
 function userRoleLabel(role) {
   return USER_ROLE_META[role]?.label || role || '—';
@@ -140,6 +233,7 @@ window.openUserModal = function (user = null) {
   document.getElementById('user-phone').value = user?.phone || '';
   document.getElementById('user-password').value   = '';
   document.getElementById('user-role').value       = user?.role    || 'viewer';
+  setUserPermissionControls(user?.role || 'viewer', user?.permissions || {});
   document.getElementById('user-username').readOnly = !!user;
   document.getElementById('user-username').classList.toggle('bg-gray-100', !!user);
   document.getElementById('user-username-note').classList.toggle('hidden', !user);
@@ -159,6 +253,7 @@ window.saveUser = async function () {
   const phone = document.getElementById('user-phone').value.trim();
   const password = document.getElementById('user-password').value;
   const role     = document.getElementById('user-role').value;
+  const permissions = readUserPermissionControls(role);
   const id       = document.getElementById('user-modal-id').value;
 
   if (!username) { showToast('Kullanici adi zorunludur', 'warning'); return; }
@@ -166,7 +261,7 @@ window.saveUser = async function () {
 
   try {
     if (id) {
-      await apiFetch(`/crm/users/${id}`, 'PUT', { role, displayName, phone });
+      await apiFetch(`/crm/users/${id}`, 'PUT', { role, displayName, phone, permissions });
       showToast('Kullanici guncellendi', 'success');
     } else {
       await apiFetch('/crm/auth/register', 'POST', { username, password, role, displayName, phone });
@@ -198,6 +293,15 @@ window.deleteUser = async function (id) {
     showToast('Kullanici silinemedi', 'error');
   }
 };
+
+document.addEventListener('DOMContentLoaded', () => {
+  const roleEl = document.getElementById('user-role');
+  if (!roleEl) return;
+  roleEl.addEventListener('change', (e) => {
+    const role = e?.target?.value || 'viewer';
+    setUserPermissionControls(role, {});
+  });
+});
 
 // Audit Logs
 
@@ -327,7 +431,7 @@ async function loadSettings() {
     botInfoGrid.innerHTML = [
       ['Ortam', data.env?.ENV],
       ['Port',        data.env?.PORT],
-      ['Bot Adi',    'WhatsYpzck'],
+      ['Bot Adi',    data.botIdentity?.name || 'WhatsYpzck'],
       ['On Ek',      data.env?.ENV === 'production' ? '/' : '!'],
     ].map(([k, v]) => `
       <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
@@ -373,6 +477,20 @@ async function loadSettings() {
     document.getElementById('notification-status-whatsapp-template').value = data.notificationTemplates?.statusWhatsappTemplate || '';
     document.getElementById('notification-status-email-template').value = data.notificationTemplates?.statusEmailTemplate || '';
     document.getElementById('notification-created-email-template').value = data.notificationTemplates?.createdEmailTemplate || '';
+    document.getElementById('bot-template-kvkk').value = data.botMessageTemplates?.kvkkMessage || '';
+    document.getElementById('bot-template-welcome').value = data.botMessageTemplates?.welcomeMenuMessage || '';
+    document.getElementById('bot-template-main-menu').value = data.botMessageTemplates?.mainMenuMessage || '';
+    document.getElementById('bot-template-fault-category').value = data.botMessageTemplates?.faultCategoryMessage || '';
+    document.getElementById('bot-template-incident-status-start').value = data.botMessageTemplates?.incidentStatusStartMessage || '';
+    document.getElementById('bot-template-incident-status-result').value = data.botMessageTemplates?.incidentStatusResultTemplate || '';
+    document.getElementById('bot-template-incident-closure-no-open').value = data.botMessageTemplates?.incidentClosureNoOpenMessage || '';
+    document.getElementById('bot-template-incident-closure-selection').value = data.botMessageTemplates?.incidentClosureSelectionMessage || '';
+    document.getElementById('bot-template-incident-closure-confirm').value = data.botMessageTemplates?.incidentClosureConfirmMessage || '';
+    document.getElementById('bot-template-incident-closure-need-approval').value = data.botMessageTemplates?.incidentClosureNeedApprovalMessage || '';
+    document.getElementById('bot-template-incident-closure-success').value = data.botMessageTemplates?.incidentClosureSuccessMessage || '';
+    document.getElementById('bot-template-chat-media-preview').value = data.botMessageTemplates?.chatMediaPreviewText || 'Fotograf gonderildi';
+    document.getElementById('bot-identity-name').value = data.botIdentity?.name || 'WhatsYpzck';
+    document.getElementById('bot-identity-author').value = data.botIdentity?.author || 'Ç. Kurtoğlu';
     bindNotificationPreviewEvents();
     updateNotificationPreview();
     AS.autoDownloadEnabled = data.autoDownloadEnabled ?? true;
@@ -420,6 +538,20 @@ async function saveSettings() {
     statusEmailTemplate: String(document.getElementById('notification-status-email-template')?.value || '').trim(),
     createdEmailTemplate: String(document.getElementById('notification-created-email-template')?.value || '').trim(),
   };
+  const botMessageTemplates = {
+    kvkkMessage: String(document.getElementById('bot-template-kvkk')?.value || '').trim(),
+    welcomeMenuMessage: String(document.getElementById('bot-template-welcome')?.value || '').trim(),
+    mainMenuMessage: String(document.getElementById('bot-template-main-menu')?.value || '').trim(),
+    faultCategoryMessage: String(document.getElementById('bot-template-fault-category')?.value || '').trim(),
+    incidentStatusStartMessage: String(document.getElementById('bot-template-incident-status-start')?.value || '').trim(),
+    incidentStatusResultTemplate: String(document.getElementById('bot-template-incident-status-result')?.value || '').trim(),
+    incidentClosureNoOpenMessage: String(document.getElementById('bot-template-incident-closure-no-open')?.value || '').trim(),
+    incidentClosureSelectionMessage: String(document.getElementById('bot-template-incident-closure-selection')?.value || '').trim(),
+    incidentClosureConfirmMessage: String(document.getElementById('bot-template-incident-closure-confirm')?.value || '').trim(),
+    incidentClosureNeedApprovalMessage: String(document.getElementById('bot-template-incident-closure-need-approval')?.value || '').trim(),
+    incidentClosureSuccessMessage: String(document.getElementById('bot-template-incident-closure-success')?.value || '').trim(),
+    chatMediaPreviewText: String(document.getElementById('bot-template-chat-media-preview')?.value || '').trim(),
+  };
   const apiKeys = {};
   keyIds.forEach(k => {
     const el = document.getElementById(`key-${k}`);
@@ -427,8 +559,12 @@ async function saveSettings() {
     const persisted = el?.dataset?.persistedValue || '';
     if (val && val !== persisted) apiKeys[k] = val;
   });
+  const botIdentity = {
+    name:   String(document.getElementById('bot-identity-name')?.value   || '').trim() || 'WhatsYpzck',
+    author: String(document.getElementById('bot-identity-author')?.value || '').trim() || 'Ç. Kurtoğlu',
+  };
   try {
-    await apiFetch('/crm/settings', 'PUT', { maxFileSizeMb, autoDownloadEnabled: AS.autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates });
+    await apiFetch('/crm/settings', 'PUT', { maxFileSizeMb, autoDownloadEnabled: AS.autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates, botMessageTemplates, botIdentity });
     showToast('Ayarlar kaydedildi', 'success');
     loadSettings();
   } catch {

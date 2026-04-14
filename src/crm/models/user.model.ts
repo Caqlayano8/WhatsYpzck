@@ -13,6 +13,13 @@ export interface IUser extends Document {
     role: UserRole;
     displayName?: string;
     phone?: string;
+    routing?: {
+        city?: string;
+        district?: string;
+        neighborhoods?: string[];
+        streets?: string[];
+        areaKeywords?: string[];
+    };
     // Granular permission overrides — admin sets these per user
     permissions?: {
         canViewIncidents?: boolean;
@@ -46,6 +53,13 @@ const UserSchema = new Schema<IUser>({
     role:        { type: String, enum: ['admin', 'field_tech', 'viewer'], default: 'viewer' },
     displayName: { type: String },
     phone:       { type: String },
+    routing: {
+        city: { type: String, default: '' },
+        district: { type: String, default: '' },
+        neighborhoods: [{ type: String }],
+        streets: [{ type: String }],
+        areaKeywords: [{ type: String }],
+    },
     permissions: {
         canViewIncidents:      { type: Boolean },
         canUpdateIncidents:    { type: Boolean },

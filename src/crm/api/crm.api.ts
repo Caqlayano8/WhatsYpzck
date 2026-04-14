@@ -1,7 +1,9 @@
+
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
+import multer from 'multer';
 import { BotManager } from '../../bot.manager';
 import logger from '../../configs/logger.config';
 import { authenticate, authorizeAdmin, authorizePermission } from '../middlewares/auth.middleware';
@@ -39,6 +41,69 @@ import crypto from 'crypto';
 import ExcelJS from 'exceljs';
 
 export const router = express.Router();
+
+const INCIDENT_STATUS_MEDIA_ROOT = path.join(process.cwd(), 'public', 'uploads', 'incident-status-media');
+
+const incidentStatusMediaStorage = multer.diskStorage({
+    destination: (req, _file, cb) => {
+        const rawId = String(req.params.id || 'unknown');
+        const safeId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const dest = path.join(INCIDENT_STATUS_MEDIA_ROOT, safeId);
+        fs.mkdirSync(dest, { recursive: true });
+        cb(null, dest);
+    },
+    filename: (_req, file, cb) => {
+        const fallbackExt = file.mimetype.startsWith('video/') ? '.mp4' : '.jpg';
+        const ext = path.extname(file.originalname || '').toLowerCase() || fallbackExt;
+        cb(null, `status-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+    }
+});
+
+const incidentStatusMediaUpload = multer({
+    storage: incidentStatusMediaStorage,
+    limits: { fileSize: 20 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        const ext = path.extname(file.originalname || '').toLowerCase();
+        const allowedByExt = new Set([
+            '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif',
+            '.mp4', '.mov', '.avi', '.webm', '.mkv', '.3gp'
+        ]);
+        const okByMime = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/');
+        const ok = okByMime || allowedByExt.has(ext);
+        if (!ok) {
+            return cb(new Error('Sadece resim veya video yuklenebilir'));
+        }
+        cb(null, true);
+    }
+});
+
+    // Aggressive Mode Toggle
+    router.post('/settings/aggressive-mode', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { aggressiveMode: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.aggressiveMode', 'settings', undefined, { enabled });
+            res.json({ success: true, aggressiveMode: settings.aggressiveMode });
+        } catch (error) {
+            logger.error('Failed to update aggressive mode:', error);
+            res.status(500).json({ error: 'Failed to update aggressive mode' });
+        }
+    });
+
+    // Remove Restrictions Toggle
+    router.post('/settings/remove-restrictions', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { restrictionsRemoved: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.restrictionsRemoved', 'settings', undefined, { enabled });
+            res.json({ success: true, restrictionsRemoved: settings.restrictionsRemoved });
+        } catch (error) {
+            logger.error('Failed to update restrictionsRemoved:', error);
+            res.status(500).json({ error: 'Failed to update restrictionsRemoved' });
+        }
+    });
 
 function parseCsvLine(line: string): string[] {
     const out: string[] = [];
@@ -189,6 +254,32 @@ function isValidEmail(value: string): boolean {
     return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email);
 }
 
+function normalizePhoneForMatch(value: string): string {
+    let digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('00')) digits = digits.slice(2);
+    if (digits.length === 11 && digits.startsWith('0')) {
+        digits = `90${digits.slice(1)}`;
+    } else if (digits.length === 10 && digits.startsWith('5')) {
+        digits = `90${digits}`;
+    }
+    return digits;
+}
+
+function collectUserAreaKeywords(user: any): string[] {
+    const routing = user?.routing || {};
+    const list = [
+        routing.city,
+        routing.district,
+        ...(Array.isArray(routing.neighborhoods) ? routing.neighborhoods : []),
+        ...(Array.isArray(routing.streets) ? routing.streets : []),
+        ...(Array.isArray(routing.areaKeywords) ? routing.areaKeywords : [])
+    ];
+    return Array.from(new Set(list
+        .map((v) => String(v || '').trim().toLocaleLowerCase('tr-TR'))
+        .filter(Boolean)));
+}
+
 function renderTemplate(template: string, variables: Record<string, string>): string {
     return String(template || '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key) => variables[key] || '');
 }
@@ -233,12 +324,20 @@ function readIncidentCsvRecords() {
 
 // Audit Log Helper
 async function addAuditLog(
-    userId: string, username: string,
+    userId: string | string[] | undefined, username: string | string[] | undefined,
     action: string, resource: string,
-    resourceId?: string, details?: any
+    resourceId?: string | string[], details?: any
 ) {
     try {
-        await AuditLogModel.create({ userId, username, action, resource, resourceId, details });
+        const normalizeValue = (value?: string | string[]) => Array.isArray(value) ? (value[0] || '') : (value || '');
+        await AuditLogModel.create({
+            userId: normalizeValue(userId),
+            username: normalizeValue(username),
+            action,
+            resource,
+            resourceId: normalizeValue(resourceId),
+            details
+        });
     } catch (err) {
         logger.error('Failed to write audit log:', err);
     }
@@ -609,8 +708,8 @@ export default function (botManager: BotManager) {
     // Auth
     router.post('/auth/register', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { username, password, role, displayName, phone } = req.body;
-            const user = await AuthService.register(username, password, normalizeUserRole(role), displayName, phone);
+            const { username, password, role, displayName, phone, routing } = req.body;
+            const user = await AuthService.register(username, password, normalizeUserRole(role), displayName, phone, routing);
             res.status(201).json(user);
         } catch (error) {
             logger.error('Registration failed:', error);
@@ -841,7 +940,7 @@ export default function (botManager: BotManager) {
 
     router.put('/settings', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { maxFileSizeMb, autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates } = req.body;
+            const { maxFileSizeMb, autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates, botMessageTemplates, botIdentity } = req.body;
             const update: any = {};
             if (maxFileSizeMb !== undefined) {
                 const mb = Number(maxFileSizeMb);
@@ -902,6 +1001,54 @@ export default function (botManager: BotManager) {
                 }
                 if (tpl.createdEmailTemplate !== undefined) {
                     update['notificationTemplates.createdEmailTemplate'] = String(tpl.createdEmailTemplate || '').trim();
+                }
+            }
+            if (botMessageTemplates && typeof botMessageTemplates === 'object') {
+                const tpl = botMessageTemplates as any;
+                if (tpl.kvkkMessage !== undefined) {
+                    update['botMessageTemplates.kvkkMessage'] = String(tpl.kvkkMessage || '').trim();
+                }
+                if (tpl.welcomeMenuMessage !== undefined) {
+                    update['botMessageTemplates.welcomeMenuMessage'] = String(tpl.welcomeMenuMessage || '').trim();
+                }
+                if (tpl.mainMenuMessage !== undefined) {
+                    update['botMessageTemplates.mainMenuMessage'] = String(tpl.mainMenuMessage || '').trim();
+                }
+                if (tpl.faultCategoryMessage !== undefined) {
+                    update['botMessageTemplates.faultCategoryMessage'] = String(tpl.faultCategoryMessage || '').trim();
+                }
+                if (tpl.incidentStatusStartMessage !== undefined) {
+                    update['botMessageTemplates.incidentStatusStartMessage'] = String(tpl.incidentStatusStartMessage || '').trim();
+                }
+                if (tpl.incidentStatusResultTemplate !== undefined) {
+                    update['botMessageTemplates.incidentStatusResultTemplate'] = String(tpl.incidentStatusResultTemplate || '').trim();
+                }
+                if (tpl.incidentClosureNoOpenMessage !== undefined) {
+                    update['botMessageTemplates.incidentClosureNoOpenMessage'] = String(tpl.incidentClosureNoOpenMessage || '').trim();
+                }
+                if (tpl.incidentClosureSelectionMessage !== undefined) {
+                    update['botMessageTemplates.incidentClosureSelectionMessage'] = String(tpl.incidentClosureSelectionMessage || '').trim();
+                }
+                if (tpl.incidentClosureConfirmMessage !== undefined) {
+                    update['botMessageTemplates.incidentClosureConfirmMessage'] = String(tpl.incidentClosureConfirmMessage || '').trim();
+                }
+                if (tpl.incidentClosureNeedApprovalMessage !== undefined) {
+                    update['botMessageTemplates.incidentClosureNeedApprovalMessage'] = String(tpl.incidentClosureNeedApprovalMessage || '').trim();
+                }
+                if (tpl.incidentClosureSuccessMessage !== undefined) {
+                    update['botMessageTemplates.incidentClosureSuccessMessage'] = String(tpl.incidentClosureSuccessMessage || '').trim();
+                }
+                if (tpl.chatMediaPreviewText !== undefined) {
+                    update['botMessageTemplates.chatMediaPreviewText'] = String(tpl.chatMediaPreviewText || '').trim();
+                }
+            }
+            if (botIdentity && typeof botIdentity === 'object') {
+                const bi = botIdentity as any;
+                if (bi.name !== undefined) {
+                    update['botIdentity.name'] = String(bi.name || '').trim() || 'WhatsYpzck';
+                }
+                if (bi.author !== undefined) {
+                    update['botIdentity.author'] = String(bi.author || '').trim() || 'Ç. Kurtoğlu';
                 }
             }
             const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
@@ -987,6 +1134,8 @@ export default function (botManager: BotManager) {
         techNote: Array.isArray(record?.statusHistory)
             ? (record.statusHistory.slice().reverse().find((entry: any) => entry?.note)?.note || '')
             : '',
+        assignedTechnician: record?.assignedTechnician || null,
+        assignment: record?.assignment || null,
         updatedAt: record?.updatedAt,
     });
 
@@ -1177,11 +1326,136 @@ export default function (botManager: BotManager) {
         }
     });
 
-    router.patch('/incidents/:id/status', authenticate, authorizePermission('canUpdateIncidents'), async (req, res) => {
+    router.patch('/incidents/:id/assign', authenticate, authorizePermission('canUpdateIncidents'), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
-            const requestedStatus = String(req.body?.status || '').trim().toUpperCase();
-            const note = String(req.body?.note ?? req.body?.techNote ?? '').trim();
+            const techId = String(req.body?.technicianUserId || '').trim();
+            if (!techId) {
+                return res.status(400).json({ error: 'technicianUserId zorunludur' });
+            }
+
+            const dbQuery: any = { $or: [{ incidentId: id }] };
+            if (/^[a-f\d]{24}$/i.test(id)) dbQuery.$or.push({ _id: id });
+            const incident = await IncidentModel.findOne(dbQuery);
+            if (!incident) return res.status(404).json({ error: 'Incident not found' });
+
+            const technician = await UserModel.findOne({ _id: techId, role: 'field_tech', isActive: true }).lean() as any;
+            if (!technician) return res.status(404).json({ error: 'Teknisyen bulunamadi veya aktif degil' });
+            if (!technician.phone) return res.status(400).json({ error: 'Secilen teknisyenin telefon numarasi yok' });
+
+            const routingKeywords = collectUserAreaKeywords(technician);
+
+            (incident as any).assignedTechnician = {
+                userId: String(technician._id),
+                username: String(technician.username || ''),
+                displayName: String(technician.displayName || technician.username || ''),
+                phone: String(technician.phone || ''),
+                assignedAt: new Date(),
+                assignedByUserId: String(req.user.userId || ''),
+                assignedByName: String(req.user.username || ''),
+            };
+            (incident as any).assignment = {
+                method: 'manual',
+                matchKeywords: routingKeywords,
+            };
+            await incident.save();
+
+            const techChatId = toWhatsAppChatId(String(technician.phone || ''));
+            const assignmentMessage = [
+                '*YENI GOREV ATAMASI*',
+                '',
+                `Ariza Kodu: ${incident.incidentId}`,
+                `Musteri: ${incident.customerName || 'Bilinmiyor'}`,
+                `Telefon: ${incident.customerPhone || 'Bilinmiyor'}`,
+                `Adres: ${incident.address || 'Bilinmiyor'}`,
+                `Sayac/Tesisat No: ${incident.meterNo || 'Bilinmiyor'}`,
+                '',
+                'Guncelleme adimi:',
+                '1) Ilk mesajda sadece ariza kodunu yazin.',
+                '2) Sistem durum kodunu isteyecek (INCELEMEDE/ISLEME_ALINDI/COZUMLENDI/KAPATILDI).',
+                '3) Sonra aciklama notu istenecek.',
+                '4) Son adimda resim/video gonderebilirsiniz (KAPATILDI icin zorunlu).'
+            ].join('\n');
+
+            let techNotified = false;
+            if (techChatId && botManager?.client) {
+                try {
+                    await botManager.client.sendMessage(techChatId, assignmentMessage);
+                    techNotified = true;
+                } catch (err) {
+                    logger.error('Failed to send assignment WhatsApp to technician:', err);
+                }
+            }
+
+            const settings = await SettingsModel.findOne().lean() as any;
+            const routingPhones = Array.isArray(settings?.incidentRouting?.whatsappNumbers)
+                ? settings.incidentRouting.whatsappNumbers
+                : [];
+            const adminUsers = await UserModel.find({ role: 'admin', isActive: true }).select('phone').lean() as any[];
+            const managerPhones = Array.from(new Set([
+                ...adminUsers.map((u) => String(u.phone || '').trim()),
+                ...routingPhones.map((v: string) => String(v || '').trim())
+            ].filter(Boolean)));
+
+            const managerMessage = `Anlik atama: ${incident.incidentId} -> ${technician.displayName || technician.username} (${technician.phone || '-'})`;
+            let managerNotifiedCount = 0;
+            for (const phone of managerPhones) {
+                const chatId = toWhatsAppChatId(phone);
+                if (!chatId || !botManager?.client) continue;
+                try {
+                    await botManager.client.sendMessage(chatId, managerMessage);
+                    managerNotifiedCount += 1;
+                } catch (_) { /* non-critical */ }
+            }
+
+            await addAuditLog(
+                req.user.userId,
+                req.user.username || '',
+                'incident.assign.technician',
+                'incident',
+                incident.incidentId,
+                {
+                    technicianUserId: String(technician._id),
+                    technicianPhone: String(technician.phone || ''),
+                    techNotified,
+                    managerNotifiedCount,
+                }
+            );
+
+            fireEvent('incident.status.updated', {
+                incidentId: String(incident.incidentId),
+                status: String(incident.status || 'ALINDI'),
+                statusLabel: incidentStatusLabel(String(incident.status || 'ALINDI')),
+                note: `Teknisyen atandi: ${technician.displayName || technician.username}`,
+                customerName: String(incident.customerName || ''),
+                customerPhone: String(incident.customerPhone || ''),
+                address: String(incident.address || ''),
+                meterNo: String(incident.meterNo || ''),
+                source: 'crm-assign'
+            }).catch(() => {});
+
+            res.json({
+                success: true,
+                techNotified,
+                managerNotifiedCount,
+                incident: serializeIncident(incident.toObject())
+            });
+        } catch (error) {
+            logger.error('Failed to assign incident technician:', error);
+            res.status(500).json({ error: 'Teknisyen atamasi yapilamadi' });
+        }
+    });
+
+    router.patch('/incidents/:id/status', authenticate, authorizePermission('canUpdateIncidents'), incidentStatusMediaUpload.single('media'), async (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim();
+            const requestedStatusRaw = Array.isArray(req.body?.status) ? req.body.status[0] : req.body?.status;
+            const noteRaw = Array.isArray(req.body?.note)
+                ? req.body.note[0]
+                : (req.body?.note ?? req.body?.techNote);
+            const requestedStatus = String(requestedStatusRaw || '').trim().toUpperCase();
+            const note = String(noteRaw || '').trim();
+            const uploadedFile = req.file;
 
             const allowed = ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI'];
             const dbQuery: any = { $or: [{ incidentId: id }] };
@@ -1226,8 +1500,18 @@ export default function (botManager: BotManager) {
             if (!allowed.includes(status)) {
                 return res.status(400).json({ error: 'Invalid status value' });
             }
-            if (!requestedStatus && !note) {
-                return res.status(400).json({ error: 'Status veya not gerekli' });
+            if (!note) {
+                return res.status(400).json({ error: 'Durum notu zorunludur' });
+            }
+
+            const isClosingNow = requestedStatus === 'KAPATILDI' && String(incident.status || '') !== 'KAPATILDI';
+            if (isClosingNow && !uploadedFile) {
+                return res.status(400).json({ error: 'Kayit kapatilirken resim veya video eklenmesi zorunludur' });
+            }
+
+            let uploadedMediaUrl = '';
+            if (uploadedFile?.path) {
+                uploadedMediaUrl = '/' + path.relative(process.cwd(), uploadedFile.path).replace(/\\/g, '/');
             }
 
             incident.status = status as any;
@@ -1237,6 +1521,11 @@ export default function (botManager: BotManager) {
                 note,
                 at: new Date()
             });
+
+            if (uploadedMediaUrl) {
+                incident.images = Array.isArray(incident.images) ? incident.images : [];
+                incident.images.push(uploadedMediaUrl);
+            }
 
             await incident.save();
 
@@ -1293,8 +1582,30 @@ export default function (botManager: BotManager) {
             try {
                 const chatId = toWhatsAppChatId(incident.customerPhone);
                 if (chatId && botManager?.client) {
+                    // Send text message
                     await botManager.client.sendMessage(chatId, whatsappMessageText);
                     customerNotified = true;
+
+                    // Send uploaded media if available
+                    if (uploadedMediaUrl) {
+                        try {
+                            const WAWebJS = await import('whatsapp-web.js');
+                            // Use HTTP URL instead of file:// - servers can be accessed locally or remotely
+                            const mediaUrl = uploadedMediaUrl.startsWith('http') 
+                                ? uploadedMediaUrl 
+                                : `http://localhost:${process.env.PORT || 3500}${uploadedMediaUrl}`;
+                            
+                            const mediaFile = await WAWebJS.default.MessageMedia.fromUrl(mediaUrl, { unsafeMime: true });
+                            await botManager.client.sendMessage(
+                                chatId,
+                                mediaFile,
+                                { caption: `Ariza Durumu Güncellemesi\n\n${note}` }
+                            );
+                            logger.info(`Media sent to customer ${incident.customerPhone} for incident ${incident.incidentId}`);
+                        } catch (mediaErr) {
+                            logger.error('Failed to send media to customer in status update:', mediaErr);
+                        }
+                    }
                 }
             } catch (notifyErr) {
                 logger.error('Failed to notify customer for incident status update:', notifyErr);
@@ -1336,7 +1647,7 @@ export default function (botManager: BotManager) {
                 'incident.status.update',
                 'incident',
                 incident.incidentId,
-                { status, note, customerNotified, customerEmailNotified }
+                { status, note, mediaAdded: Boolean(uploadedMediaUrl), customerNotified, customerEmailNotified }
             );
             fireEvent('incident.status.updated', {
                 incidentId: String(incident.incidentId),
@@ -1386,7 +1697,7 @@ export default function (botManager: BotManager) {
 
     router.patch('/commands/:name', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { name } = req.params;
+            const name = Array.isArray(req.params.name) ? (req.params.name[0] || '') : String(req.params.name || '');
             if (!(name in commands)) return res.status(404).json({ error: 'Command not found' });
             const settings = await SettingsModel.findOne().lean() as any;
             const disabled: string[] = settings?.disabledCommands || [];
@@ -1415,7 +1726,7 @@ export default function (botManager: BotManager) {
     router.put('/users/:id', authenticate, authorizeAdmin, async (req, res) => {
         try {
             if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Kendi rolünüzü değiştiremezsiniz' });
-            const { role, permissions, displayName, phone, isActive } = req.body;
+            const { role, permissions, displayName, phone, isActive, routing } = req.body;
             const update: Record<string, any> = {};
             if (role !== undefined) {
                 update.role = normalizeUserRole(role);
@@ -1424,6 +1735,7 @@ export default function (botManager: BotManager) {
             if (displayName !== undefined) update.displayName = displayName;
             if (phone !== undefined) update.phone = phone;
             if (isActive !== undefined) update.isActive = isActive;
+            if (routing !== undefined) update.routing = routing;
             const user = await UserModel.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
             if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
             await addAuditLog(req.user.userId, req.user.username || '', 'user.update', 'user', req.params.id, update);
@@ -1445,6 +1757,19 @@ export default function (botManager: BotManager) {
         } catch (error) {
             logger.error('Failed to update permissions:', error);
             res.status(500).json({ error: 'İzinler güncellenemedi' });
+        }
+    });
+
+    router.get('/technicians', authenticate, authorizePermission('canViewIncidents'), async (_req, res) => {
+        try {
+            const users = await UserModel.find({ role: 'field_tech', isActive: true })
+                .select('_id username displayName phone routing permissions isActive')
+                .sort({ displayName: 1, username: 1 })
+                .lean();
+            res.json(users);
+        } catch (error) {
+            logger.error('Failed to fetch technicians:', error);
+            res.status(500).json({ error: 'Teknisyenler alınamadı' });
         }
     });
 
@@ -1590,6 +1915,9 @@ export default function (botManager: BotManager) {
     // Inbox
     router.get('/inbox', authenticate, authorizePermission('canViewConversations'), async (req, res) => {
         try {
+            const settings = await SettingsModel.findOne().select('botMessageTemplates.chatMediaPreviewText').lean() as any;
+            const mediaPreviewText = String(settings?.botMessageTemplates?.chatMediaPreviewText || 'Fotograf gonderildi').trim() || 'Fotograf gonderildi';
+
             // Get all distinct phone numbers first to build the full conversation list
             const allPhones = await MessageModel.distinct('phoneNumber');
             const resolutionMap = await buildConversationResolutionMap(allPhones, botManager);
@@ -1602,6 +1930,8 @@ export default function (botManager: BotManager) {
                     $group: {
                         _id: '$phoneNumber',
                         lastMessage: { $first: '$body' },
+                        lastType: { $first: '$type' },
+                        lastMediaUrl: { $first: '$mediaUrl' },
                         lastTimestamp: { $first: '$timestamp' },
                         unread: {
                             $sum: {
@@ -1621,9 +1951,15 @@ export default function (botManager: BotManager) {
 
                 const existing = conversationMap.get(canonicalPhone);
                 if (!existing || new Date(entry.lastTimestamp || 0).getTime() > new Date(existing.lastTimestamp || 0).getTime()) {
+                    const hasMedia = Boolean(entry.lastMediaUrl);
+                    const lastType = String(entry.lastType || '').toLowerCase();
+                    const previewMessage = hasMedia && lastType !== 'text'
+                        ? mediaPreviewText
+                        : (entry.lastMessage || (hasMedia ? mediaPreviewText : ''));
+
                     conversationMap.set(canonicalPhone, {
                         phoneNumber: canonicalPhone,
-                        lastMessage: entry.lastMessage,
+                        lastMessage: previewMessage,
                         lastTimestamp: entry.lastTimestamp,
                         unread: (existing?.unread || 0) + entry.unread,
                     });
@@ -1669,7 +2005,7 @@ export default function (botManager: BotManager) {
 
     router.get('/inbox/:phone', authenticate, authorizePermission('canViewConversations'), async (req, res) => {
         try {
-            const { phone } = req.params;
+            const phone = Array.isArray(req.params.phone) ? (req.params.phone[0] || '') : String(req.params.phone || '');
             const canonicalPhone = normalizeConversationPhone(phone);
             const botOwnPhone = getBotOwnConversationPhone(botManager);
             if (botOwnPhone && canonicalPhone === botOwnPhone) {
@@ -1702,7 +2038,7 @@ export default function (botManager: BotManager) {
 
     router.post('/inbox/:phone/reply', authenticate, authorizePermission('canSendMessages'), async (req, res) => {
         try {
-            const { phone } = req.params;
+            const phone = Array.isArray(req.params.phone) ? (req.params.phone[0] || '') : String(req.params.phone || '');
             const { message } = req.body;
             if (!message) return res.status(400).json({ error: 'message required' });
 

@@ -15,17 +15,66 @@ Set-Location $WorkspacePath
 
 Write-Host "[Ç.Kurtoğlu] WhatsYpzck sistem baslatiliyor..." -ForegroundColor Cyan
 
-if (Get-Command docker -ErrorAction SilentlyContinue) {
-    $running = docker ps --format "{{.Names}}" | Select-String -Pattern "^open-webui$"
-    if (-not $running) {
-        $exists = docker ps -a --format "{{.Names}}" | Select-String -Pattern "^open-webui$"
-        if ($exists) {
-            docker start open-webui | Out-Null
+$appName = Split-Path -Leaf $WorkspacePath
+$packageJsonPath = Join-Path $WorkspacePath "package.json"
+if (Test-Path $packageJsonPath) {
+    try {
+        $package = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+        if (-not [string]::IsNullOrWhiteSpace($package.name)) {
+            $appName = $package.name
         }
-        else {
-            docker run -d --name open-webui -p 3001:8080 -e OLLAMA_BASE_URL=http://host.docker.internal:11434 -v open-webui:/app/backend/data ghcr.io/open-webui/open-webui:main | Out-Null
+    } catch {
+        Write-Host "[Ç.Kurtoğlu] package.json okunamadi, klasor adi kullanilacak." -ForegroundColor Yellow
+    }
+}
+
+$appSlug = ($appName.ToLower() -replace "[^a-z0-9_.-]", "-").Trim("-")
+if ([string]::IsNullOrWhiteSpace($appSlug)) {
+    $appSlug = "whatsypzck"
+}
+
+function Test-PortInUse {
+    param([int]$Port)
+
+    try {
+        return $null -ne (Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1)
+    } catch {
+        return $false
+    }
+}
+
+$openWebUiPort = 3001
+$envPathForDocker = Join-Path $WorkspacePath ".env"
+if (Test-Path $envPathForDocker) {
+    $line = Get-Content $envPathForDocker | Where-Object { $_ -match '^OPEN_WEBUI_PORT=' } | Select-Object -First 1
+    if ($line) {
+        $parsed = ($line -replace '^OPEN_WEBUI_PORT=', '').Trim()
+        if ($parsed -match '^\d+$') {
+            $openWebUiPort = [int]$parsed
         }
     }
+}
+
+$resolvedOpenWebUiPort = $openWebUiPort
+while (Test-PortInUse -Port $resolvedOpenWebUiPort) {
+    $resolvedOpenWebUiPort++
+}
+
+$openWebUiContainerName = "$appSlug-open-webui"
+
+if (Get-Command docker -ErrorAction SilentlyContinue) {
+    $running = docker ps --format "{{.Names}}" | Select-String -Pattern "^$([Regex]::Escape($openWebUiContainerName))$"
+    if (-not $running) {
+        $exists = docker ps -a --format "{{.Names}}" | Select-String -Pattern "^$([Regex]::Escape($openWebUiContainerName))$"
+        if ($exists) {
+            docker start $openWebUiContainerName | Out-Null
+        }
+        else {
+            $openWebUiVolumeName = "$appSlug-open-webui-data"
+            docker run -d --name $openWebUiContainerName -p "$resolvedOpenWebUiPort`:8080" -e OLLAMA_BASE_URL=http://host.docker.internal:11434 -v "$openWebUiVolumeName`:/app/backend/data" ghcr.io/open-webui/open-webui:main | Out-Null
+        }
+    }
+    Write-Host "[Ç.Kurtoğlu] Docker container: $openWebUiContainerName, Open WebUI Port: $resolvedOpenWebUiPort" -ForegroundColor DarkGray
 }
 
 if (Get-Command ollama -ErrorAction SilentlyContinue) {

@@ -8,6 +8,7 @@
         "@google/generative-ai": "^0.12.0",
         "@iamtraction/google-translate": "^2.0.1",
         "@types/cors": "^2.8.19",
+        "@types/multer": "^2.1.0",
         "@types/nodemailer": "^7.0.11",
         "@types/qrcode": "^1.5.6",
         "@types/speakeasy": "^2.0.10",
@@ -30,6 +31,7 @@
         "jsonwebtoken": "^9.0.2",
         "langdetect": "^0.2.1",
         "mongoose": "^8.16.2",
+        "multer": "^2.1.1",
         "nodemailer": "^8.0.1",
         "nodemon": "^3.1.4",
         "openai": "^4.48.2",
@@ -46,8 +48,8 @@
         "yt-dlp-wrap": "^2.3.12"
     },
     "scripts": {
-        "start": "ts-node src/index.ts",
-        "dev": "nodemon src/index.ts",
+        "start": "ts-node --files src/index.ts",
+        "dev": "nodemon --exec \"ts-node --files\" src/index.ts",
         "dev:refresh": "npm run clean:all && npm install && npm run dev",
         "create-admin": "ts-node scripts/create-admin.ts",
         "smoke:incident": "ts-node --transpile-only scripts/incident-flow-smoke.ts",

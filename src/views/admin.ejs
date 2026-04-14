@@ -469,6 +469,7 @@
       </div>
     </div>
     <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+
       <table class="w-full text-left" style="min-width:1240px;">
         <thead>
           <tr class="border-b border-gray-100 bg-gray-50">
@@ -487,6 +488,35 @@
         </thead>
         <tbody id="incidents-table-body"></tbody>
       </table>
+
+      <!-- Modal for updating incident status with media upload -->
+      <div id="incident-status-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="modal-backdrop absolute inset-0" onclick="closeIncidentStatusModal()"></div>
+        <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-7">
+          <h2 class="text-lg font-bold text-gray-900 mb-4">Durum Güncelle & Medya Ekle</h2>
+          <form id="incident-status-form" enctype="multipart/form-data">
+            <input type="hidden" id="incident-status-id" name="incidentId">
+            <input type="hidden" id="incident-status-value" name="status">
+            <div class="mb-3">
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Secilen Durum</label>
+              <div id="incident-status-selected" class="text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">-</div>
+            </div>
+            <div class="mb-3">
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Durum Notu *</label>
+              <textarea id="incident-status-note" name="note" class="field w-full" rows="3" placeholder="Durum notu yazın..." required></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Medya Ekle (Resim veya Video)</label>
+              <input type="file" id="incident-status-media" name="media" accept="image/*,video/*" class="field w-full">
+              <p class="text-xs text-gray-400 mt-1">Desteklenen: jpg, png, gif, webp, mp4. Maksimum boyut: 20MB. Not: Sadece KAPATILDI durumunda zorunludur.</p>
+            </div>
+            <div class="flex justify-end gap-2 mt-4">
+              <button type="button" onclick="closeIncidentStatusModal()" class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">İptal</button>
+              <button type="submit" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">Kaydet</button>
+            </div>
+          </form>
+        </div>
+      </div>
       <div id="incidents-empty" class="text-center py-10 text-gray-400 hidden">
         <i class="fas fa-folder-open text-2xl mb-2"></i>
         <p class="text-sm">Henuz ariza kaydi bulunamadi.</p>
@@ -1335,6 +1365,20 @@
         </div>
       </div>
       <div class="bg-white border border-gray-200 rounded-2xl p-5">
+        <div class="text-sm font-semibold text-gray-800 mb-1">Bot Kimliği</div>
+        <div class="text-xs text-gray-500 mb-4">Bot adı ve imza, WhatsApp mesajlarında ve arıza raporlarında (CSV, e-posta) kullanılır.</div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Bot Adı</label>
+            <input id="bot-identity-name" class="field" placeholder="WhatsYpzck">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">İmza / Yazar</label>
+            <input id="bot-identity-author" class="field" placeholder="Ç. Kurtoğlu">
+          </div>
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-2xl p-5">
         <div class="text-sm font-semibold text-gray-800 mb-1">Musteri Bildirim Metinleri</div>
         <div class="text-xs text-gray-500 mb-4">Kurum adi, imza, kapanis ve WhatsApp/E-posta durum mesajlari. Kullanilabilir degiskenler: {{incidentId}}, {{statusLabel}}, {{updatedAt}}, {{noteLine}}, {{customerName}}, {{customerPhone}}, {{customerEmail}}, {{address}}, {{meterNo}}, {{institutionName}}, {{signatureName}}, {{closingLine}}</div>
         <div class="grid grid-cols-3 gap-4 mb-4">
@@ -1393,6 +1437,60 @@
         </div>
       </div>
       <div class="bg-white border border-gray-200 rounded-2xl p-5">
+        <div class="text-sm font-semibold text-gray-800 mb-1">Bot Mesaj Sablonlari</div>
+        <div class="text-xs text-gray-500 mb-4">KVKK metni, karsilama mesaji, ana menu, durum sorgu ve talep kapatma mesajlarini buradan guncelleyebilirsiniz.</div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">KVKK Metni</label>
+            <textarea id="bot-template-kvkk" rows="8" class="field resize-none" placeholder="KVKK bilgilendirme mesaji"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">KVKK Sonrasi Karsilama Menusu</label>
+            <textarea id="bot-template-welcome" rows="8" class="field resize-none" placeholder="KVKK onayi sonrasi gonderilen menu"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Ana Menu Mesaji</label>
+            <textarea id="bot-template-main-menu" rows="8" class="field resize-none" placeholder="1-2 secenekli ana menu"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Ariza Kategori Mesaji</label>
+            <textarea id="bot-template-fault-category" rows="8" class="field resize-none" placeholder="Ariza kategori secim mesaji"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Ariza Durum Sorgu Baslangic Mesaji</label>
+            <textarea id="bot-template-incident-status-start" rows="4" class="field resize-none" placeholder="Ad soyad isteme mesaji"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Ariza Durum Sonuc Mesaji</label>
+            <textarea id="bot-template-incident-status-result" rows="8" class="field resize-none" placeholder="{{incidentId}}, {{statusText}}, {{createdAt}}, {{updatedAt}}, {{address}}, {{meterNo}} degiskenlerini kullanabilirsiniz"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kapatma: Acik Talep Yok Mesaji</label>
+            <textarea id="bot-template-incident-closure-no-open" rows="4" class="field resize-none" placeholder="Uzerinize kayitli kapatilabilecek acik talep bulunamadi..."></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kapatma: Talep Secim Mesaji</label>
+            <textarea id="bot-template-incident-closure-selection" rows="7" class="field resize-none" placeholder="{{incidentList}} degiskenini kullanabilirsiniz"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kapatma: Onay Isteme Mesaji</label>
+            <textarea id="bot-template-incident-closure-confirm" rows="5" class="field resize-none" placeholder="{{incidentId}}, {{statusText}} degiskenlerini kullanabilirsiniz"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kapatma: Onay Bekleme Mesaji</label>
+            <textarea id="bot-template-incident-closure-need-approval" rows="4" class="field resize-none" placeholder="Devam etmek icin 'kabul ediyorum' yaziniz..."></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kapatma: Basarili Sonuc Mesaji</label>
+            <textarea id="bot-template-incident-closure-success" rows="5" class="field resize-none" placeholder="{{incidentId}} degiskenini kullanabilirsiniz"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Sohbet Listesi Medya Onizleme Metni</label>
+            <input id="bot-template-chat-media-preview" class="field" placeholder="Fotograf gonderildi">
+          </div>
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-2xl p-5">
         <div class="text-sm font-semibold text-gray-800 mb-4">Indirme Ayarlari</div>
         <div class="flex items-center gap-8">
           <div><label class="text-xs font-semibold text-gray-500 block mb-1">Maksimum Dosya Boyutu (MB)</label><input type="number" id="setting-maxFileSizeMb" class="field" style="max-width:140px;" min="1" max="2000"></div>
@@ -1401,6 +1499,25 @@
             <div class="toggle-track" id="toggle-autoDownload" onclick="toggleAutoDownload()"><div class="toggle-thumb"></div></div>
             <div><div class="text-sm font-medium text-gray-800">Otomatik İndir</div><div class="text-xs text-gray-500">URL'lerden medyayı otomatik olarak indir</div></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Agresif Mod ve Kısıtlamalar -->
+      <div class="bg-white border border-red-200 rounded-2xl p-5">
+        <div class="flex items-center gap-6 mb-4">
+          <div>
+            <div class="text-sm font-semibold text-red-700">Agresif Mod</div>
+            <div class="text-xs text-gray-500">Tüm kısıtlamaları kaldırır, botu maksimum hızda çalıştırır.</div>
+          </div>
+          <button type="button" id="btn-aggressive-mode" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-colors">Agresif Modu Aç/Kapat</button>
+        </div>
+        <div class="flex items-center gap-6">
+          <div>
+            <div class="text-sm font-semibold text-gray-800">Tüm Kısıtlamaları Kaldır</div>
+            <div class="text-xs text-gray-500">Tüm güvenlik, hız ve limit kısıtlamalarını devre dışı bırakır.</div>
+          </div>
+          <button type="button" id="btn-remove-restrictions" class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors">Kısıtlamaları Kaldır</button>
+        </div>
         </div>
       </div>
 
@@ -1698,6 +1815,16 @@
           <option value="viewer">Kullanici</option>
           <option value="field_tech">Teknisyen</option>
         </select>
+      </div>
+      <div id="user-permissions-wrap" class="border border-gray-200 rounded-xl p-3.5 bg-gray-50 hidden">
+        <label class="text-xs font-semibold text-gray-500 block mb-2">Teknisyen Gorevleri (Acilip/Kapatilabilir)</label>
+        <div class="grid grid-cols-1 gap-2 text-xs text-gray-700">
+          <label class="flex items-center gap-2"><input type="checkbox" id="user-perm-canViewIncidents"> Ariza kayitlarini gorebilir</label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="user-perm-canUpdateIncidents"> Ariza durumu guncelleyebilir</label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="user-perm-canViewConversations"> Sohbetleri gorebilir</label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="user-perm-canSendMessages"> Mesaj gonderebilir</label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="user-perm-canViewReports"> Raporlari gorebilir</label>
+        </div>
       </div>
     </div>
     <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">

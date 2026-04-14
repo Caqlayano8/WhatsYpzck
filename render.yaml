@@ -1,0 +1,54 @@
+services:
+  - type: web
+    name: whatsypzck
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /health
+    disk:
+      name: whatsypzck-data
+      mountPath: /app/.wwebjs_auth
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: TZ
+        value: Europe/Istanbul
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/chromium
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_MASTER_KEY
+        sync: false
+      - key: DEFAULT_ADMIN_USER
+        sync: false
+      - key: DEFAULT_ADMIN_PASS
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ARIZA_TEAM_WHATSAPP
+        sync: false
+      - key: ARIZA_TEAM_EMAILS
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CHAT_GPT_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENWEATHERMAP_API_KEY
+        sync: false
