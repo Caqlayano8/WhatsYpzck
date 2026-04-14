@@ -35,6 +35,7 @@ COPY package*.json ./
 RUN npm install --only=production && npm cache clean --force
 
 COPY --from=builder /app/build ./build
+COPY --from=builder /app/build/public ./public
 COPY --from=builder /app/licenses ./licenses
 
 EXPOSE 3000

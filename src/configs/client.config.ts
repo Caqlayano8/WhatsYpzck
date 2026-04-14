@@ -47,7 +47,7 @@ export const ClientConfig = {
             '--no-zygote',
             '--password-store=basic',
             '--safebrowsing-disable-auto-update',
-            // '--single-process',
+            '--single-process',
             '--use-mock-keychain',
         ]
     },
