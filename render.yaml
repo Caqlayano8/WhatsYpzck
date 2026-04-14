@@ -2,13 +2,9 @@ services:
   - type: web
     name: whatsypzck
     runtime: docker
-    plan: starter
+    plan: free
     autoDeploy: true
     healthCheckPath: /health
-    disk:
-      name: whatsypzck-data
-      mountPath: /app/.wwebjs_auth
-      sizeGB: 5
     envVars:
       - key: NODE_ENV
         value: production
