@@ -18,7 +18,7 @@ const SHERPA_MODELS_DIR = path.join(__dirname, '../../.bot/sherpa');
 const ASR_DIR           = path.join(SHERPA_MODELS_DIR, 'asr');
 const TTS_DIR           = path.join(SHERPA_MODELS_DIR, 'tts');
 
-const ASR_MODEL_NAME = 'sherpa-onnx-whisper-tiny.en';
+const ASR_MODEL_NAME = process.env.SHERPA_ONNX_ASR_MODEL_NAME || 'sherpa-onnx-whisper-small';  // Higher accuracy for Turkish voice notes
 const TTS_MODEL_NAME = 'vits-piper-en_US-lessac-medium';
 
 const ASR_URL = `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/${ASR_MODEL_NAME}.tar.bz2`;
@@ -26,6 +26,12 @@ const TTS_URL = `https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-mod
 
 const ASR_MODEL_DIR = path.join(ASR_DIR, ASR_MODEL_NAME);
 const TTS_MODEL_DIR = path.join(TTS_DIR, TTS_MODEL_NAME);
+
+function getWhisperFilePrefix(modelName: string): 'tiny' | 'base' | 'small' {
+    if (modelName.includes('whisper-small')) return 'small';
+    if (modelName.includes('whisper-base')) return 'base';
+    return 'tiny';
+}
 
 /**
  * Initializes sherpa-onnx models at startup, downloading them if not present.
@@ -46,9 +52,10 @@ export async function initializeSherpaModels(): Promise<void> {
 }
 
 async function ensureAsr(): Promise<void> {
-    const encoderPath = path.join(ASR_MODEL_DIR, 'tiny.en-encoder.int8.onnx');
-    const decoderPath = path.join(ASR_MODEL_DIR, 'tiny.en-decoder.int8.onnx');
-    const tokensPath  = path.join(ASR_MODEL_DIR, 'tiny.en-tokens.txt');
+    const filePrefix = getWhisperFilePrefix(ASR_MODEL_NAME);
+    const encoderPath = path.join(ASR_MODEL_DIR, `${filePrefix}-encoder.int8.onnx`);
+    const decoderPath = path.join(ASR_MODEL_DIR, `${filePrefix}-decoder.int8.onnx`);
+    const tokensPath  = path.join(ASR_MODEL_DIR, `${filePrefix}-tokens.txt`);
 
     // If user supplied env vars manually, trust them
     if (
@@ -79,7 +86,7 @@ async function ensureAsr(): Promise<void> {
         return;
     }
 
-    logger.info('Downloading sherpa-onnx ASR model (whisper-tiny.en) — this may take a moment…');
+    logger.info(`Downloading sherpa-onnx ASR model (${ASR_MODEL_NAME}) — this may take a moment…`);
     if (!fs.existsSync(ASR_DIR)) fs.mkdirSync(ASR_DIR, { recursive: true });
 
     const archive = path.join(ASR_DIR, `${ASR_MODEL_NAME}.tar.bz2`);

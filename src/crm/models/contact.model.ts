@@ -6,8 +6,11 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IContact extends Document {
+    customerId: string;       // Benzersiz müşteri numarası: MUS-000001
     phoneNumber: string;
     name?: string;
+    lastName?: string;
+    address?: string;
     pushName?: string;
     language?: string;
     detectedLanguage?: 'en' | 'fr' | 'other';
@@ -22,9 +25,27 @@ export interface IContact extends Document {
     kvkkAccepted?: boolean;
 }
 
+// Otomatik artan sıralı müşteri numarası üreteci
+const CounterSchema = new Schema({ seq: { type: Number, default: 0 } });
+const ContactCounter = (mongoose.models['ContactCounter'] as mongoose.Model<{ seq: number }>) ||
+    mongoose.model<{ seq: number }>('ContactCounter', CounterSchema);
+
+export async function generateCustomerId(): Promise<string> {
+    const counter = await ContactCounter.findOneAndUpdate(
+        {},
+        { $inc: { seq: 1 } },
+        { upsert: true, new: true }
+    ).lean() as { seq: number } | null;
+    const seq = String(counter?.seq ?? 1).padStart(6, '0');
+    return `MUS-${seq}`;
+}
+
 const ContactSchema = new Schema<IContact>({
+    customerId: { type: String, unique: true, sparse: true },
     phoneNumber: { type: String, required: true, unique: true },
     name: String,
+    lastName: String,
+    address: String,
     pushName: String,
     language: String,
     detectedLanguage: { type: String, enum: ['en', 'fr', 'other'] },
@@ -38,5 +59,12 @@ const ContactSchema = new Schema<IContact>({
     score: { type: Number, default: 0 },
     kvkkAccepted: { type: Boolean, default: false }
 }, { timestamps: true });
+
+// Yeni kayıt oluşturulurken otomatik customerId ata
+ContactSchema.pre('save', async function () {
+    if (!this.customerId) {
+        this.customerId = await generateCustomerId();
+    }
+});
 
 export const ContactModel = mongoose.model<IContact>('Contact', ContactSchema);

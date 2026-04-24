@@ -133,8 +133,8 @@ function renderIncidents(list) {
     tr.innerHTML = `
       <td class="px-5 py-3 text-xs font-mono text-indigo-600 font-semibold">${escHtml(row.id || '—')}</td>
       <td class="px-5 py-3 text-xs text-gray-500">${fmtDate(row.createdAt)}</td>
-      <td class="px-5 py-3 text-sm text-gray-800">${escHtml(row.customerName || '—')}</td>
-      <td class="px-5 py-3 text-xs text-gray-600">${escHtml(row.phone || '—')}</td>
+      <td class="px-5 py-3 text-sm text-gray-800">${escHtml(maskName(row.customerName) || '—')}</td>
+      <td class="px-5 py-3 text-xs text-gray-600">${escHtml(maskPhone(row.phone) || '—')}</td>
       <td class="px-5 py-3 text-xs text-gray-600">${escHtml(row.customerEmail || '—')}</td>
       <td class="px-5 py-3 text-xs text-gray-600" title="${escHtml(row.address || '')}">${escHtml((row.address || '—').slice(0, 80))}${(row.address || '').length > 80 ? '…' : ''}</td>
       <td class="px-5 py-3 text-xs text-gray-700 font-mono">${escHtml(row.meterNo || '—')}</td>
@@ -190,7 +190,7 @@ function openIncidentStatusModal(incidentId) {
 }
 
 async function submitIncidentStatusForm(event) {
-  event.preventDefault();
+  if (event && event.preventDefault) event.preventDefault();
 
   const incidentId = document.getElementById('incident-status-id')?.value || '';
   const status = document.getElementById('incident-status-value')?.value || '';
@@ -256,6 +256,7 @@ if (!window.__incidentStatusFormBound) {
   }
 }
 
+window.submitIncidentStatusForm = submitIncidentStatusForm;
 window.loadIncidents = loadIncidents;
 function openIncidentDetail(incidentId) {
   const AS = window.AdminState;
@@ -316,7 +317,7 @@ function openIncidentDetail(incidentId) {
     '<div style="background:#fff;border-radius:20px;box-shadow:0 25px 50px rgba(0,0,0,0.3);padding:24px;width:100%;max-width:700px;position:relative;">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">' +
         '<div>' +
-          '<h3 style="font-weight:700;color:#111827;font-size:18px;margin:0;">' + escHtml(row.customerName || 'Bilinmiyor') + '</h3>' +
+          '<h3 style="font-weight:700;color:#111827;font-size:18px;margin:0;">' + escHtml(maskName(row.customerName) || 'Bilinmiyor') + '</h3>' +
           '<p style="font-size:11px;color:#4f46e5;font-family:monospace;margin:4px 0 0;">#' + escHtml(row.incidentId || row.id || '') + '</p>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:10px;">' +

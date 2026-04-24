@@ -21,9 +21,12 @@ export async function sendDailyReport(botManager: BotManager): Promise<void> {
         const trOffset = 3 * 60 * 60 * 1000;
         const trNow = new Date(now.getTime() + trOffset);
 
-        const year  = trNow.getUTCFullYear();
-        const month = trNow.getUTCMonth();
-        const day   = trNow.getUTCDate();
+        // Cron runs at 00:00 Istanbul → query YESTERDAY's incidents
+        const trYesterday = new Date(trNow.getTime() - 24 * 60 * 60 * 1000);
+
+        const year  = trYesterday.getUTCFullYear();
+        const month = trYesterday.getUTCMonth();
+        const day   = trYesterday.getUTCDate();
 
         // Day boundaries in UTC representing 00:00–23:59 Istanbul time
         const dayStartUTC = new Date(Date.UTC(year, month, day, 0,  0,  0) - trOffset);
@@ -123,8 +126,8 @@ export async function sendDailyReport(botManager: BotManager): Promise<void> {
         const managerEmail = process.env.ARIZA_TEAM_EMAILS || '';
 
         const whatsappMsg = count > 0
-            ? `📊 *Günlük Arıza Raporu* - ${dateStr}\n\nBugün toplam *${count}* arıza talebi alındı. Detaylar ekte.`
-            : `📊 *Günlük Arıza Raporu* - ${dateStr}\n\nBugün arıza talebi alınmadı.`;
+            ? `📊 *Günlük Arıza Raporu* - ${dateStr}\n\nDün toplam *${count}* arıza talebi alındı. Detaylar ekte.`
+            : `📊 *Günlük Arıza Raporu* - ${dateStr}\n\nDün arıza talebi alınmadı.`;
 
         // Send WhatsApp
         if (managerPhone && (botManager as any)?.client?.sendMessage) {
@@ -151,8 +154,8 @@ export async function sendDailyReport(botManager: BotManager): Promise<void> {
         if (managerEmail) {
             const emailSubject = `Günlük Arıza Raporu - ${dateStr}`;
             const emailBody    = count > 0
-                ? `Merhaba,\n\nBugün (${dateStr}) toplam ${count} arıza talebi alındı.\n\nDetaylı rapor ekte yer almaktadır.\n\nSaygılarımızla.`
-                : `Merhaba,\n\nBugün (${dateStr}) herhangi bir arıza talebi alınmadı.\n\nSaygılarımızla.`;
+                ? `Merhaba,\n\nDün (${dateStr}) toplam ${count} arıza talebi alındı.\n\nDetaylı rapor ekte yer almaktadır.\n\nSaygılarımızla.`
+                : `Merhaba,\n\nDün (${dateStr}) herhangi bir arıza talebi alınmadı.\n\nSaygılarımızla.`;
 
             await sendMailWithAttachment({
                 subject:    emailSubject,

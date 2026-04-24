@@ -8,6 +8,41 @@ function resolveMediaUrl(url) {
 }
 window.resolveMediaUrl = resolveMediaUrl;
 
+// Masks last 6 digits of a phone number with ******
+window.maskPhone = function (phone) {
+  const AS = window.AdminState;
+  if (!AS || !AS.maskPhoneNumbers) return phone || '';
+  if (!phone || phone.length <= 6) return phone || '';
+  return phone.slice(0, -6) + '******';
+};
+
+// Masks only the surname (last word), keeps first name(s): "Ahmet Yılmaz" → "Ahmet Y***"
+window.maskSurname = function (name) {
+  const AS = window.AdminState;
+  if (!AS || !AS.maskContactNames) return name || '';
+  if (!name) return '';
+  const parts = name.trim().split(' ');
+  if (parts.length === 1) return parts[0][0] + '***';
+  const last = parts[parts.length - 1];
+  return parts.slice(0, -1).join(' ') + ' ' + (last.length > 0 ? last[0] + '***' : '');
+};
+
+// Masks last 4 digits of a phone number with ****
+window.maskPhone4 = function (phone) {
+  const AS = window.AdminState;
+  if (!AS || !AS.maskPhoneNumbers) return phone || '';
+  if (!phone || phone.length <= 4) return phone || '';
+  return phone.slice(0, -4) + '****';
+};
+
+// Masks a contact name keeping first letter of each word
+window.maskName = function (name) {
+  const AS = window.AdminState;
+  if (!AS || !AS.maskContactNames) return name || '';
+  if (!name) return '';
+  return name.split(' ').map(w => w.length > 0 ? w[0] + '***' : '').join(' ');
+};
+
 const TR_TIME_ZONE = 'Europe/Istanbul';
 
 // Toast notifications
@@ -61,9 +96,9 @@ function fmtDate(d) {
 }
 
 function langBadge(lang) {
-  if (lang === 'en') return '<span class="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">🇬🇧 English</span>';
-  if (lang === 'fr') return '<span class="inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 font-semibold px-2 py-0.5 rounded-full">🇫🇷 French</span>';
-  return '<span class="inline-flex items-center text-xs bg-gray-100 text-gray-600 font-semibold px-2 py-0.5 rounded-full">Other</span>';
+  if (lang === 'en') return '<span class="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">🇬🇧 Ingilizce</span>';
+  if (lang === 'fr') return '<span class="inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 font-semibold px-2 py-0.5 rounded-full">🇫🇷 Fransizca</span>';
+  return '<span class="inline-flex items-center text-xs bg-gray-100 text-gray-600 font-semibold px-2 py-0.5 rounded-full">Diger</span>';
 }
 
 function escHtml(str) {

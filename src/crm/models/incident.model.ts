@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type IncidentStatus = 'ALINDI' | 'INCELEMEDE' | 'ISLEME_ALINDI' | 'COZUMLENDI' | 'KAPATILDI';
+export type IncidentStatus = 'ALINDI' | 'INCELEMEDE' | 'ISLEME_ALINDI' | 'COZUMLENDI' | 'KAPATILDI' | 'IPTAL';
 
 export interface IIncident extends Document {
     incidentId: string;
@@ -39,6 +39,9 @@ export interface IIncident extends Document {
         method?: 'manual' | 'auto-area';
         matchKeywords?: string[];
     };
+    // Multi-tenant session tracking
+    tenantId?: string;
+    sessionKey?: string;
     // Archive ve retention fields
     isArchived?: boolean;
     archivedAt?: Date;
@@ -61,13 +64,13 @@ const incidentSchema = new Schema<IIncident>({
     sourcePhoneNumber: { type: String, required: true },
     status: {
         type: String,
-        enum: ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI'],
+        enum: ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI', 'IPTAL'],
         default: 'ALINDI'
     },
     statusHistory: [{
         status: {
             type: String,
-            enum: ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI'],
+            enum: ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI', 'IPTAL'],
             required: true
         },
         note: { type: String, default: '' },
@@ -95,6 +98,9 @@ const incidentSchema = new Schema<IIncident>({
         method: { type: String, enum: ['manual', 'auto-area'], default: 'manual' },
         matchKeywords: [{ type: String }]
     },
+    // Multi-tenant session tracking
+    tenantId: { type: String, default: 'default', index: true },
+    sessionKey: { type: String, default: 'primary' },
     // Archive ve retention fields - ASLA SİLİNMEYECEK, TARİH BAZLI SAKLANACAK
     isArchived: { type: Boolean, default: false, index: true },
     archivedAt: { type: Date, default: null },

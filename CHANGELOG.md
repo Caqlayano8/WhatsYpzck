@@ -4,6 +4,41 @@ All notable changes to WhatsYpzck are documented here.
 
 ---
 
+## [2.1.0] — 2026-04-16
+
+### Added
+
+#### CRM — Anket (Memnuniyet Değerlendirmesi)
+- **Multi-step memnuniyet anketi**: Arıza çözüldüğünde müşteriye otomatik 3 adımlı WhatsApp anketi gönderilir.
+  - **Adım 1** — "Probleminiz çözüldü mü? 1=Evet / 2=Hayır"
+  - **Adım 2** — "Teknisyen iletişiminden memnun kaldınız mı? 1=Evet / 2=Hayır"
+  - **Adım 3** — Serbest yorum (isteğe bağlı; "Hayır" yazarak geçilebilir)
+- **SurveyResponse modeli** (`src/crm/models/survey-response.model.ts`) yeniden tasarlandı:
+  - `solutionSatisfied`, `techSatisfied`, `freeComment`, `step`, `status: 'pending'|'completed'|'expired'` alanları
+- **Admin Panel → Anketler** sekmesi tamamen güncellendi:
+  - 4 istatistik kartı: Toplam Gönderilen, Tamamlanan, Problem Çözüldü ✅, Teknisyen Memnun ✅
+  - Müşteri telefonu ve Arıza No ile filtreleme + sayfalama
+  - Tabloda arıza bazlı ayrı ayrı satırlar: Çözüm, Teknisyen, Serbest Yorum sütunları
+
+#### CRM — Manuel Kişi Ekleme
+- **`POST /crm/contacts`** endpoint'i eklendi (Kişi Ekle butonu artık çalışıyor)
+- Admin Panel → Kişiler → **"Kişi Ekle"** butonu → telefon, ad, soyad, adres girilebiliyor
+- Hata mesajları artık API'den okunuyor (örn. "Bu telefon numarası zaten kayıtlı")
+
+### Changed
+
+- `apiFetch` fonksiyonu (`public/js/admin/state.js`) hata body'sini doğru okuyor — artık `POST /url → 409` yerine gerçek hata mesajı gösteriliyor
+- `GET /crm/surveys` endpoint'i `customerPhone` ve `incidentId` filtre parametrelerini kabul ediyor
+- Anket istatistik kartlarında rating yerine çözüm/teknisyen memnuniyet oranları gösteriliyor
+- Anket mesaj şablonunu Admin → Anketler → Anket Ayarları'ndan düzenlemek mümkün
+
+### Fixed
+
+- Kişi ekle modal'ı 409 çakışma durumunda "Bu telefon numarası zaten kayıtlı" hatası veriyor (eski: "POST /crm/contacts → 409")
+- Anket cevabı tek karakter kontrolünden çıkarıldı (herhangi uzunlukta serbest yorum destekleniyor)
+
+---
+
 ## [2.0.0] — 2026-03
 
 ### Breaking Changes

@@ -33,7 +33,10 @@ export interface IUser extends Document {
         canManageSettings?: boolean;
         canManageUsers?: boolean;
         canToggleMaintenance?: boolean;
+        canManageSessions?: boolean;
     };
+    // Session access control: empty = access all sessions, non-empty = restricted to listed sessions
+    allowedSessions?: string[]; // e.g. ['default:primary', 'acme:support']
     isActive: boolean;
     lastLogin?: Date;
     // 2FA
@@ -72,7 +75,9 @@ const UserSchema = new Schema<IUser>({
         canManageSettings:     { type: Boolean },
         canManageUsers:        { type: Boolean },
         canToggleMaintenance:  { type: Boolean },
+        canManageSessions:     { type: Boolean },
     },
+    allowedSessions: [{ type: String }],
     isActive:  { type: Boolean, default: true },
     lastLogin: { type: Date },
     // 2FA alanları

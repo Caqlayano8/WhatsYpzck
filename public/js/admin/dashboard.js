@@ -1,5 +1,6 @@
 // Dashboard
 async function loadDashboardData() {
+  loadSessionsOverview();
   try {
     const [contactsData, campaignsData, templatesData, recentData, analytics] = await Promise.all([
       apiFetch('/crm/contacts?limit=1'),
@@ -75,6 +76,33 @@ async function loadDashboardData() {
     renderRecentContacts(recentData.data);
   } catch (err) {
     console.error('Dashboard load error:', err);
+  }
+}
+
+async function loadSessionsOverview() {
+  const grid = document.getElementById('sessions-overview-grid');
+  if (!grid) return;
+  try {
+    const data = await apiFetch('/crm/sessions/overview');
+    const sessions = data?.sessions || [];
+    if (!sessions.length) {
+      grid.innerHTML = '<p class="text-xs text-gray-400 col-span-full">Henüz aktif session yok.</p>';
+      return;
+    }
+    const statusColor = { CONNECTED: 'bg-green-100 text-green-700', DISCONNECTED: 'bg-red-100 text-red-700', INITIALIZING: 'bg-yellow-100 text-yellow-700', QR_READY: 'bg-blue-100 text-blue-700' };
+    grid.innerHTML = sessions.map(s => {
+      const color = statusColor[s.status] || 'bg-gray-100 text-gray-600';
+      return `
+        <div class="border border-gray-100 rounded-xl p-3">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold text-gray-800 truncate">${escHtml(s.tenantId)}:<span class="text-indigo-600">${escHtml(s.sessionKey)}</span></span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full font-semibold shrink-0 ml-1 ${color}">${escHtml(s.status)}</span>
+          </div>
+          <div class="text-xs text-gray-500">${s.incidentCount ?? 0} olay</div>
+        </div>`;
+    }).join('');
+  } catch {
+    if (grid) grid.innerHTML = '<p class="text-xs text-gray-400 col-span-full">Session bilgileri alınamadı.</p>';
   }
 }
 

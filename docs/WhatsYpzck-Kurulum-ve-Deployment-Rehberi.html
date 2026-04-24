@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WhatsYpzck — Kurulum ve Deployment Rehberi</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 14px;
+    color: #1a1a2e;
+    background: #f8f9fa;
+    line-height: 1.7;
+  }
+
+  /* ── KAPAK SAYFASI ── */
+  .cover {
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 50%, #0d7377 100%);
+    color: white;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 60px 40px;
+    page-break-after: always;
+  }
+
+  .cover-logo {
+    font-size: 72px;
+    margin-bottom: 20px;
+  }
+
+  .cover h1 {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  }
+
+  .cover .subtitle {
+    font-size: 20px;
+    color: #14ffec;
+    margin-bottom: 40px;
+    font-weight: 300;
+  }
+
+  .cover-divider {
+    width: 100px;
+    height: 3px;
+    background: #14ffec;
+    margin: 30px auto;
+    border-radius: 2px;
+  }
+
+  .cover-info {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 12px;
+    padding: 30px 50px;
+    margin-top: 20px;
+    backdrop-filter: blur(10px);
+  }
+
+  .cover-info table { width: 100%; border-collapse: collapse; }
+  .cover-info td { padding: 8px 20px; color: #e0e0e0; font-size: 15px; }
+  .cover-info td:first-child { color: #14ffec; font-weight: 600; text-align: right; }
+  .cover-info td:last-child { text-align: left; }
+
+  .cover-badge {
+    display: inline-block;
+    background: rgba(20, 255, 236, 0.2);
+    border: 1px solid #14ffec;
+    color: #14ffec;
+    padding: 6px 20px;
+    border-radius: 20px;
+    font-size: 13px;
+    margin: 5px;
+  }
+
+  .cover-footer {
+    position: fixed;
+    bottom: 30px;
+    color: rgba(255,255,255,0.5);
+    font-size: 12px;
+  }
+
+  /* ── İÇ SAYFA DÜZENİ ── */
+  .page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 50px;
+  }
+
+  /* ── BÖLÜM BAŞLIKLARI ── */
+  .section-header {
+    background: linear-gradient(135deg, #0f3460, #0d7377);
+    color: white;
+    padding: 20px 30px;
+    border-radius: 10px;
+    margin: 40px 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    page-break-before: auto;
+  }
+
+  .section-header .num {
+    background: rgba(255,255,255,0.2);
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .section-header h2 {
+    font-size: 22px;
+    font-weight: 700;
+  }
+
+  .section-header .emoji { font-size: 24px; }
+
+  /* ── ALT BAŞLIKLAR ── */
+  h3 {
+    color: #0f3460;
+    font-size: 16px;
+    margin: 25px 0 10px;
+    padding-left: 12px;
+    border-left: 4px solid #0d7377;
+  }
+
+  h4 {
+    color: #444;
+    font-size: 14px;
+    margin: 15px 0 8px;
+    font-weight: 600;
+  }
+
+  /* ── İÇİNDEKİLER ── */
+  .toc {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 30px 40px;
+    margin: 30px 0;
+    box-shadow: 0 2px 15px rgba(0,0,0,0.05);
+    page-break-after: always;
+  }
+
+  .toc h2 {
+    color: #0f3460;
+    font-size: 20px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #0d7377;
+  }
+
+  .toc-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px dotted #ddd;
+    color: #333;
+    font-size: 14px;
+  }
+
+  .toc-item:last-child { border-bottom: none; }
+
+  .toc-num {
+    background: #0f3460;
+    color: white;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    margin-right: 15px;
+    flex-shrink: 0;
+  }
+
+  .toc-sub { padding-left: 50px; color: #666; font-size: 13px; }
+
+  /* ── KART ── */
+  .card {
+    background: white;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin: 15px 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  }
+
+  .card-blue  { border-left: 5px solid #0f3460; }
+  .card-green { border-left: 5px solid #27ae60; }
+  .card-amber { border-left: 5px solid #f39c12; }
+  .card-red   { border-left: 5px solid #e74c3c; }
+  .card-teal  { border-left: 5px solid #0d7377; }
+
+  /* ── ADIM KUTUSU ── */
+  .steps { list-style: none; margin: 15px 0; }
+
+  .steps li {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 16px;
+    gap: 14px;
+  }
+
+  .step-num {
+    background: linear-gradient(135deg, #0f3460, #0d7377);
+    color: white;
+    min-width: 30px; height: 30px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .step-body { flex: 1; }
+  .step-body strong { color: #0f3460; display: block; margin-bottom: 3px; }
+  .step-body p { color: #555; font-size: 13px; margin: 0; }
+
+  /* ── KOD BLOĞU ── */
+  .code-block {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 12px 0;
+    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    overflow-x: auto;
+    position: relative;
+  }
+
+  .code-block .comment { color: #6a9a6e; }
+  .code-block .cmd     { color: #14ffec; }
+  .code-block .param   { color: #f0a500; }
+  .code-block .string  { color: #ce9178; }
+  .code-block .label   {
+    display: block;
+    background: rgba(255,255,255,0.08);
+    color: #888;
+    font-size: 11px;
+    padding: 4px 10px;
+    margin: -18px -22px 14px;
+    border-radius: 8px 8px 0 0;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ── UYARI KUTUSU ── */
+  .alert {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 12px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 13px;
+  }
+
+  .alert-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+  .alert-body { flex: 1; }
+  .alert-body strong { display: block; margin-bottom: 3px; }
+
+  .alert-info    { background: #e8f4fd; border: 1px solid #3498db; color: #1a5276; }
+  .alert-warn    { background: #fef9e7; border: 1px solid #f39c12; color: #784212; }
+  .alert-success { background: #eafaf1; border: 1px solid #27ae60; color: #145a32; }
+  .alert-danger  { background: #fdedec; border: 1px solid #e74c3c; color: #641e16; }
+
+  /* ── DOSYA YOLU KUTUSU ── */
+  .filepath {
+    background: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: monospace;
+    font-size: 13px;
+    color: #333;
+    display: inline-block;
+  }
+
+  /* ── TABLO ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+    font-size: 13px;
+  }
+
+  th {
+    background: #0f3460;
+    color: white;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+  }
+
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #eee;
+    color: #444;
+  }
+
+  tr:nth-child(even) td { background: #f8f8f8; }
+  tr:hover td { background: #e8f4fd; }
+
+  /* ── ROZET ── */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .badge-blue   { background: #d0e8ff; color: #0f3460; }
+  .badge-green  { background: #d5f5e3; color: #145a32; }
+  .badge-amber  { background: #fdebd0; color: #784212; }
+  .badge-red    { background: #fadbd8; color: #641e16; }
+
+  /* ── KLASÖR YAPISI ── */
+  .tree {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border-radius: 8px;
+    padding: 18px 22px;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 2;
+    margin: 12px 0;
+  }
+
+  .tree .folder { color: #f0a500; }
+  .tree .file   { color: #14ffec; }
+  .tree .note   { color: #888; font-size: 12px; }
+
+  /* ── AYIRICI ── */
+  hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(to right, transparent, #ccc, transparent);
+    margin: 30px 0;
+  }
+
+  /* ── CHECKLIST ── */
+  .checklist { list-style: none; margin: 10px 0; }
+  .checklist li {
+    padding: 6px 0;
+    padding-left: 28px;
+    position: relative;
+    font-size: 13px;
+    color: #444;
+  }
+  .checklist li::before {
+    content: '☐';
+    position: absolute;
+    left: 0;
+    color: #0f3460;
+    font-size: 16px;
+  }
+
+  /* ── PRINT / PDF ── */
+  @media print {
+    body { background: white; }
+    .cover { min-height: 100vh !important; }
+    .section-header { page-break-before: auto; }
+    .card { box-shadow: none; }
+    .no-print { display: none; }
+  }
+
+  /* ── FOOTER ── */
+  .page-footer {
+    text-align: center;
+    color: #999;
+    font-size: 12px;
+    margin-top: 60px;
+    padding: 20px 0;
+    border-top: 1px solid #eee;
+  }
+
+  .highlight { color: #0d7377; font-weight: 700; }
+
+  p { margin-bottom: 8px; color: #444; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  ul li { margin-bottom: 4px; color: #444; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin: 15px 0;
+  }
+
+  @media (max-width: 700px) {
+    .two-col { grid-template-columns: 1fr; }
+    .page { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ KAPAK ═════════ -->
+<div class="cover">
+  <div class="cover-logo">🤖</div>
+  <h1>WhatsYpzck</h1>
+  <div class="subtitle">WhatsApp Destek & Arıza Bildirim Botu</div>
+  <div class="cover-divider"></div>
+
+  <div style="margin-bottom: 30px;">
+    <span class="cover-badge">📖 Kurulum Rehberi</span>
+    <span class="cover-badge">🖥️ Offline EXE</span>
+    <span class="cover-badge">🌐 Cloud Hosting</span>
+  </div>
+
+  <div class="cover-info">
+    <table>
+      <tr><td>Geliştirici</td><td>Ç. Kurtoğlu</td></tr>
+      <tr><td>Sürüm</td><td>v2.1.0</td></tr>
+      <tr><td>Belge Tarihi</td><td>Nisan 2026</td></tr>
+      <tr><td>Node.js</td><td>v22 LTS (Portably Bundled)</td></tr>
+      <tr><td>Veritabanı</td><td>MongoDB 8.0 (Portable/Atlas)</td></tr>
+      <tr><td>Platform</td><td>Windows 10/11 (64-bit) · Linux · Docker</td></tr>
+    </table>
+  </div>
+
+  <div class="cover-footer">
+    Bu belge WhatsYpzck projesinin resmi kurulum kılavuzudur.
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════ İÇİNDEKİLER ════ -->
+<div class="page">
+  <div class="toc">
+    <h2>📋 İçindekiler</h2>
+
+    <div class="toc-item"><div class="toc-num">1</div><strong>Dosya Haritası — Nerede Ne Var?</strong></div>
+    <div class="toc-item toc-sub">Proje klasör yapısı ve her dosyanın görevi</div>
+
+    <div class="toc-item"><div class="toc-num">2</div><strong>YENİ BİLGİSAYAR — Offline EXE ile Kurulum</strong></div>
+    <div class="toc-item toc-sub">Adım 1: EXE hazırlama (geliştirici tarafında)</div>
+    <div class="toc-item toc-sub">Adım 2: EXE kurulumu (hedef bilgisayarda)</div>
+    <div class="toc-item toc-sub">Adım 3: İlk başlatma ve QR tarama</div>
+
+    <div class="toc-item"><div class="toc-num">3</div><strong>VS Code Olmadan Başlatma (Günlük Kullanım)</strong></div>
+    <div class="toc-item toc-sub">launch.bat ile çift tıkla başlat</div>
+
+    <div class="toc-item"><div class="toc-num">4</div><strong>Site / Hosting'e Yükleme (Canlı Ortam)</strong></div>
+    <div class="toc-item toc-sub">Render.com (ücretsiz)</div>
+    <div class="toc-item toc-sub">Railway.app</div>
+    <div class="toc-item toc-sub">VPS / Kendi Sunucu</div>
+
+    <div class="toc-item"><div class="toc-num">5</div><strong>Port Otomatik Bulma</strong></div>
+    <div class="toc-item toc-sub">Meşgul port yönetimi</div>
+
+    <div class="toc-item"><div class="toc-num">6</div><strong>Sık Sorulan Sorular & Sorun Giderme</strong></div>
+
+    <div class="toc-item"><div class="toc-num">7</div><strong>Kurulum Öncesi Kontrol Listesi</strong></div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════ BÖLÜM 1: DOSYA HARİTASI ══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="num">1</div>
+    <div class="emoji">🗂️</div>
+    <h2>Dosya Haritası — Nerede Ne Var?</h2>
+  </div>
+
+  <p>Aşağıdaki dosyalar bu kurulum rehberi kapsamında oluşturulmuştur. <strong>Hepsi proje ana klasöründe</strong> bulunur:</p>
+
+  <div class="tree">
+    <span class="label" style="display:block;color:#888;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">C:\Users\...\WhatsYpzck\ (PROJE KÖK KLASÖRÜ)</span>
+    <span class="folder">📁 installer\</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="file">WhatsYpzck-LocalOffline.iss</span> &nbsp;<span class="note">← Offline EXE tanımı (Inno Setup)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="file">WhatsYpzck-Unlicensed.iss</span> &nbsp;<span class="note">← Lisanssız versiyon kurulum tanımı</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">📁 redist\</span> &nbsp;<span class="note">← build-offline-package.ps1 tarafından otomatik doldurulur</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">📁 node\</span> &nbsp;<span class="note">← Portable Node.js (indirilir)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">📁 mongodb\</span> &nbsp;<span class="note">← Portable MongoDB (indirilir)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">📁 chromium\</span> &nbsp;<span class="note">← Chromium (Puppeteer için, indirilir)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">📁 output\</span> &nbsp;<span class="note">← Oluşturulan EXE buraya çıkar</span><br>
+    <br>
+    <span class="folder">📁 scripts\</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">📁 windows\</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">start-installed.ps1</span> &nbsp;<span class="note">← Ana launcher (VS Code'suz, offline çalışır)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">build-offline-package.ps1</span> &nbsp;<span class="note">← EXE hazırlama scripti</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">start-whatsypzck.ps1</span> &nbsp;<span class="note">← Geliştirici başlatma scripti</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">setup-whatsypzck.ps1</span> &nbsp;<span class="note">← İlk kurulum scripti (geliştirici için)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">📁 cloud\</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">prepare-cloud-package.ps1</span> &nbsp;<span class="note">← Hosting için paket hazırlama</span><br>
+    <br>
+    <span class="folder">📁 docs\</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span class="file">WhatsYpzck-Kurulum-ve-Deployment-Rehberi.html</span> &nbsp;<span class="note">← Bu belge</span><br>
+    <br>
+    <span class="file">launch.bat</span> &nbsp;<span class="note">← Çift tıkla başlat (son kullanıcı için)</span><br>
+    <span class="file">src\index.ts</span> &nbsp;<span class="note">← Port otomatik bulma ↳ findFreePort() eklendi</span><br>
+  </div>
+
+  <div class="card card-blue">
+    <h3 style="margin-top:0;border:none;padding:0;color:#0f3460;">📌 Kısa Özet — Hangi Dosya Ne İşe Yarar?</h3>
+    <table>
+      <tr>
+        <th>Dosya</th>
+        <th>Kim Kullanır</th>
+        <th>Görev</th>
+      </tr>
+      <tr>
+        <td><code>build-offline-package.ps1</code></td>
+        <td><span class="badge badge-blue">Geliştirici</span></td>
+        <td>EXE hazırlamak için <strong>bir kez</strong> çalıştırılır</td>
+      </tr>
+      <tr>
+        <td><code>WhatsYpzck-LocalOffline.iss</code></td>
+        <td><span class="badge badge-blue">Geliştirici</span></td>
+        <td>Inno Setup EXE tanımı — otomatik kullanılır</td>
+      </tr>
+      <tr>
+        <td><code>installer\output\*.exe</code></td>
+        <td><span class="badge badge-green">Son Kullanıcı</span></td>
+        <td>Hedef bilgisayarda kurulum için kullanılacak dosya</td>
+      </tr>
+      <tr>
+        <td><code>launch.bat</code></td>
+        <td><span class="badge badge-green">Son Kullanıcı</span></td>
+        <td>Kurulum sonrası günlük başlatma — çift tıkla yeterli</td>
+      </tr>
+      <tr>
+        <td><code>start-installed.ps1</code></td>
+        <td><span class="badge badge-amber">Otomatik</span></td>
+        <td>launch.bat tarafından çağrılır, doğrudan kullanılmaz</td>
+      </tr>
+      <tr>
+        <td><code>prepare-cloud-package.ps1</code></td>
+        <td><span class="badge badge-blue">Geliştirici</span></td>
+        <td>Hosting için ZIP paketi hazırlar</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════ BÖLÜM 2: OFFLİNE EXE KURULUM ══════ -->
+<div class="page">
+  <div class="section-header">
+    <div class="num">2</div>
+    <div class="emoji">🖥️</div>
+    <h2>Yeni Bilgisayar — Offline EXE ile Kurulum</h2>
+  </div>
+
+  <div class="alert alert-info">
+    <div class="alert-icon">ℹ️</div>
+    <div class="alert-body">
+      <strong>Bu yöntem kimler içindir?</strong>
+      Uygulamayı VS Code, Node.js veya teknik bilgi olmadan <strong>başka bir Windows bilgisayara</strong> kurmak isteyenler.
+      Sadece bir EXE dosyasını çalıştırmak yeterlidir.
+    </div>
+  </div>
+
+  <!-- AŞAMA A -->
+  <h3>📦 Aşama A — EXE Dosyasını Hazırlama (Geliştirici bilgisayarında)</h3>
+
+  <div class="card card-blue">
+    <p>Bu aşama yalnızca <strong>bir kez</strong> geliştirici tarafında yapılır. Oluşturulan EXE daha sonra
+    USB veya internet üzerinden hedefe kopyalanır.</p>
+  </div>
+
+  <ul class="steps">
+    <li>
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>PowerShell'i Yönetici Olarak Açın</strong>
+        <p>Başlat → "PowerShell" yazın → Sağ tıkla → <em>Yönetici olarak çalıştır</em></p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>Proje klasörüne gidin</strong>
+        <div class="code-block">
+          <span class="cmd">cd</span> <span class="string">'C:\Users\34116\Desktop\WhatsYpzck'</span>
+        </div>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>EXE hazırlama scriptini çalıştırın</strong>
+        <p>Bu komut: Node.js + MongoDB + Chromium indirir, uygulamayı derler, EXE'yi oluşturur.</p>
+        <div class="code-block">
+          <span class="cmd">.\scripts\windows\build-offline-package.ps1</span>
+        </div>
+        <p style="margin-top:8px;">⏱️ <em>İlk seferinde 5–15 dakika sürebilir (internet hızına bağlı).</em></p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <strong>Inno Setup kurun (eğer yoksa)</strong>
+        <p>Script Inno Setup bulamazsa uyarı verir. Şuradan indirin ve kurun:</p>
+        <div class="code-block">
+          <span class="comment"># İndirme adresi:</span><br>
+          <span class="string">https://jrsoftware.org/isdl.php</span>
+        </div>
+        <p>Kurumdan sonra scripti tekrar çalıştırın.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <strong>EXE hazır! Şu konumda bulunur:</strong>
+        <div class="code-block">
+          <span class="folder" style="color:#f0a500;">C:\Users\34116\Desktop\WhatsYpzck\installer\output\</span><br>
+          <span class="file">WhatsYpzck-Offline-Kurulum-Setup-v2.0.0.exe</span>
+        </div>
+        <p>Bu EXE dosyasını USB, e-posta veya paylaşımlı klasör ile hedefe kopyalayın.</p>
+      </div>
+    </li>
+  </ul>
+
+  <div class="alert alert-success">
+    <div class="alert-icon">✅</div>
+    <div class="alert-body">
+      <strong>İpucu: Tekrarlanan buildlerde hız kazanın</strong>
+      Portable dosyalar zaten <code>installer\redist\</code> klasöründeyse script tekrar indirmez. Sadece build ve EXE adımlarını çalıştırır.
+    </div>
+  </div>
+
+  <!-- AŞAMA B -->
+  <h3>💿 Aşama B — Hedef Bilgisayara Kurulum (Son kullanıcı tarafında)</h3>
+
+  <div class="alert alert-info">
+    <div class="alert-icon">ℹ️</div>
+    <div class="alert-body">
+      <strong>Gereksinimler:</strong> Windows 10/11 64-bit &nbsp;·&nbsp; Yönetici hesabı &nbsp;·&nbsp; <strong>Başka hiçbir şey gerekmez.</strong>
+      Node.js, MongoDB, VS Code kurulu olmak zorunda değil.
+    </div>
+  </div>
+
+  <ul class="steps">
+    <li>
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>EXE dosyasını kopyalayın</strong>
+        <p>USB, e-posta veya ağ paylaşımı yoluyla <code>WhatsYpzck-Offline-Kurulum-Setup-v2.0.0.exe</code> dosyasını hedef bilgisayara aktarın.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>EXE'ye sağ tıklayın → Yönetici Olarak Çalıştır</strong>
+        <p>Windows Defender uyarısı çıkarsa: <em>"Daha fazla bilgi"</em> → <em>"Yine de çalıştır"</em> tıklayın.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>Kurulum sihirbazını takip edin</strong>
+        <p>Varsayılan ayarlar ile ilerleyin. Kurulum dizini: <code>C:\Program Files\WhatsYpzck\</code></p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <strong>Kurulum tamamlanınca "Şimdi Başlat" kutucuğunu işaretleyin</strong>
+        <p>Uygulama otomatik başlar, tarayıcıda Admin Paneli açılır.</p>
+      </div>
+    </li>
+  </ul>
+
+  <!-- AŞAMA C -->
+  <h3>📱 Aşama C — İlk WhatsApp Bağlantısı (QR Tarama)</h3>
+
+  <div class="card card-teal">
+    <ul class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Admin Panelini açın</strong>
+          <p>Tarayıcıda otomatik açılır. Elle açmak için: <code>http://localhost:XXXX/admin</code></p>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>QR sayfasına gidin</strong>
+          <p><code>http://localhost:XXXX/qr</code> adresine gidin — büyük bir QR kodu görünür.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>WhatsApp'tan tarayın</strong>
+          <p>Telefon → WhatsApp → ⋮ (Üç nokta) → <em>Bağlı Cihazlar</em> → <em>Cihaz Bağla</em> → QR'ı tarayın.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <strong>Bot aktif!</strong>
+          <p>Admin panelde "Client is ready!" mesajı görünce bot hazırdır.</p>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <div class="alert alert-warn">
+    <div class="alert-icon">⚠️</div>
+    <div class="alert-body">
+      <strong>QR Süresi:</strong> QR kodu yaklaşık 60 saniyede geçersiz olur. Tarama yapılmazsa sayfayı yenileyin.
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════ BÖLÜM 3: GÜNLÜK KULLANIM ═══════════ -->
+<div class="page">
+  <div class="section-header">
+    <div class="num">3</div>
+    <div class="emoji">⚡</div>
+    <h2>VS Code Olmadan Başlatma (Günlük Kullanım)</h2>
+  </div>
+
+  <p>Kurulum tamamlandıktan sonra uygulamayı her gün başlatmak için <strong>yalnızca bu tek adım</strong> yeterlidir:</p>
+
+  <div class="card card-green" style="text-align:center; padding: 40px;">
+    <div style="font-size: 48px; margin-bottom: 15px;">🖱️</div>
+    <h3 style="border:none;padding:0;color:#145a32;font-size:20px;margin-bottom:10px;">launch.bat dosyasına çift tıklayın</h3>
+    <div class="filepath" style="font-size:15px;">C:\Program Files\WhatsYpzck\launch.bat</div>
+    <p style="margin-top:15px;color:#555;">veya masaüstündeki <strong>WhatsYpzck</strong> kısayoluna tıklayın.</p>
+  </div>
+
+  <h3>launch.bat Ne Yapar?</h3>
+
+  <div class="two-col">
+    <div class="card card-blue" style="font-size:13px;">
+      <strong style="color:#0f3460;">🔐 1. Yönetici izni alır</strong><br><br>
+      MongoDB gibi sistem servislerini başlatabilmek için otomatik olarak yönetici haklarıyla çalışır.
+    </div>
+    <div class="card card-blue" style="font-size:13px;">
+      <strong style="color:#0f3460;">🗄️ 2. MongoDB'yi başlatır</strong><br><br>
+      Portable MongoDB (gömülü) otomatik başlar. Sistem MongoDB servisi varsa onu kullanır.
+    </div>
+    <div class="card card-blue" style="font-size:13px;">
+      <strong style="color:#0f3460;">🔌 3. Boş port bulur</strong><br><br>
+      .env'deki PORT değerini dener. Meşgulse 3501, 3502... diye boş port bulana kadar devam eder.
+    </div>
+    <div class="card card-blue" style="font-size:13px;">
+      <strong style="color:#0f3460;">🌐 4. Browser açar</strong><br><br>
+      Uygulama hazır olunca Admin Paneli tarayıcıda otomatik açılır.
+    </div>
+  </div>
+
+  <div class="alert alert-info">
+    <div class="alert-icon">💡</div>
+    <div class="alert-body">
+      <strong>Konsol penceresi açılır — bu normal!</strong>
+      Siyah bir PowerShell penceresi açılır ve loglar görünür. Bu pencereyi kapatmak uygulamayı durdurur.
+      Arka planda çalıştırmak istiyorsanız pencereyi küçültün.
+    </div>
+  </div>
+
+  <h3>Port Numarasını Nereden Öğrenirim?</h3>
+
+  <p>Konsol penceresinde şuna benzer bir satır görünür:</p>
+  <div class="code-block">
+    [WhatsYpzck] ✔ Uygulama PID: 12345<br>
+    [WhatsYpzck] ⚠ Port 3500 meşgul, <span class="highlight" style="color:#14ffec;">3501</span> kullanılıyor.<br>
+    [WhatsYpzck] ✔ WhatsYpzck hazır → http://localhost:<span class="highlight" style="color:#14ffec;">3501</span>/admin
+  </div>
+
+  <p>Admin panele erişmek için tarayıcıda o adresi kullanın.</p>
+
+  <h3>Uygulamayı Durdurmak</h3>
+
+  <div class="two-col">
+    <div class="card" style="text-align:center;">
+      <strong>Yöntem 1 — Konsol penceresi</strong><br><br>
+      Açık siyah PowerShell penceresini kapatın.
+    </div>
+    <div class="card" style="text-align:center;">
+      <strong>Yöntem 2 — Ctrl+C</strong><br><br>
+      Konsol penceresinde <code>Ctrl + C</code> tuş kombinasyonu.
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════ BÖLÜM 4: HOSTİNG / CLOUD ═══════ -->
+<div class="page">
+  <div class="section-header">
+    <div class="num">4</div>
+    <div class="emoji">🌐</div>
+    <h2>Site / Hosting'e Yükleme (Canlı Ortam)</h2>
+  </div>
+
+  <div class="alert alert-info">
+    <div class="alert-icon">ℹ️</div>
+    <div class="alert-body">
+      <strong>Bu yöntem kimler içindir?</strong>
+      Uygulamayı 7/24 çevrimiçi çalışacak şekilde bir sunucuya veya cloud platformuna deploy etmek isteyenler.
+      WhatsApp botu aktif kalmaya devam eder.
+    </div>
+  </div>
+
+  <!-- ADIM 0 — Paket hazırlama -->
+  <h3>📦 Önce: Deploy Paketini Hazırlayın</h3>
+
+  <div class="code-block">
+    <span class="label">PowerShell — Geliştirici Bilgisayarında</span>
+    <span class="cmd">cd</span> <span class="string">'C:\Users\34116\Desktop\WhatsYpzck'</span><br>
+    <span class="cmd">.\scripts\cloud\prepare-cloud-package.ps1</span>
+  </div>
+
+  <p>Bu komut şunları oluşturur:</p>
+  <ul>
+    <li><code>deploy-package\</code> — temiz kaynak klasörü</li>
+    <li><code>deploy-package\HOSTING-REHBERI.md</code> — platform bazlı adımlar</li>
+    <li><code>WhatsYpzck-CloudDeploy-YYYYMMDD.zip</code> — ZIP paketi</li>
+    <li><code>deploy-package\.env.production</code> — doldurmanız gereken şablon</li>
+  </ul>
+
+  <hr>
+
+  <!-- RENDER -->
+  <h3>🟢 Seçenek A — Render.com (Ücretsiz, Önerilen)</h3>
+
+  <div class="card card-green">
+    <p><strong>Render.com</strong> — Ücretsiz planı olan, Docker destekli cloud platformu. Projenin <code>render.yaml</code> dosyası zaten hazır.</p>
+  </div>
+
+  <ul class="steps">
+    <li>
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>Render.com hesabı oluşturun</strong>
+        <p><a href="https://render.com" style="color:#0d7377;">render.com</a> → GitHub hesabıyla ücretsiz kayıt olun.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>MongoDB Atlas veritabanı oluşturun</strong>
+        <p><a href="https://www.mongodb.com/atlas" style="color:#0d7377;">mongodb.com/atlas</a> → Ücretsiz M0 cluster → Connection string alın.</p>
+        <p>⚠️ Network Access → IP Whitelist'e <code>0.0.0.0/0</code> ekleyin.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>New Web Service → Deploy from GitHub</strong>
+        <p>Repoyu bağlayın. <code>render.yaml</code> otomatik algılanır, Docker imajı kullanılır.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <strong>Environment Variables bölümünden değerleri girin</strong>
+        <p><code>deploy-package\.env.production</code> şablonunu açın, dolu satırları Render'a kopyalayın.</p>
+        <div class="code-block" style="font-size:11px;">
+          MONGODB_URI = mongodb+srv://user:pass@cluster.mongodb.net/whatsypzck<br>
+          JWT_SECRET = (min 32 karakter random string)<br>
+          ENCRYPTION_MASTER_KEY = (64 hex karakter)<br>
+          DEFAULT_ADMIN_PASS = (güçlü şifre)<br>
+          ARIZA_TEAM_WHATSAPP = 905XXXXXXXXX
+        </div>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <strong>Deploy Edin — URL Alın</strong>
+        <p>Render deploy biter → <code>https://whatsypzck-xxx.onrender.com</code> URL'nizi alırsınız.</p>
+        <p>Admin paneli: <code>https://url/admin</code> — QR tarama: <code>https://url/qr</code></p>
+      </div>
+    </li>
+  </ul>
+
+  <div class="alert alert-warn">
+    <div class="alert-icon">⚠️</div>
+    <div class="alert-body">
+      <strong>Ücretsiz Plan Kısıtı:</strong> Render ücretsiz planında 15 dakika aktivite olmadığında servis uyku moduna girer.
+      WhatsApp botu için ücretli plan (<strong>$7/ay Starter</strong>) veya Railway.app önerilir.
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- RAILWAY -->
+  <h3>🟣 Seçenek B — Railway.app</h3>
+
+  <ul class="steps">
+    <li>
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>Railway CLI kurun ve giriş yapın</strong>
+        <div class="code-block">
+          <span class="cmd">npm install -g @railway/cli</span><br>
+          <span class="cmd">railway login</span>
+        </div>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>deploy-package klasöründen deploy edin</strong>
+        <div class="code-block">
+          <span class="cmd">cd</span> <span class="string">'C:\Users\34116\Desktop\WhatsYpzck\deploy-package'</span><br>
+          <span class="cmd">railway init</span><br>
+          <span class="cmd">railway up</span>
+        </div>
+      </div>
+    </li>
+    <li>
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>Railway Dashboard'dan Environment Variables ekleyin</strong>
+        <p><code>.env.production</code> şablonundaki değerleri Railway Variables bölümüne girin.</p>
+      </div>
+    </li>
+  </ul>
+
+  <hr>
+
+  <!-- VPS -->
+  <h3>🔵 Seçenek C — VPS / Kendi Sunucu (Ubuntu/Debian)</h3>
+
+  <div class="code-block">
+    <span class="label">SSH Bağlantısı — Terminal</span>
+    <span class="comment"># 1. Sunucuya dosyaları kopyalayın</span><br>
+    <span class="cmd">scp</span> -r deploy-package/ user@sunucu-ip:/opt/whatsypzck/<br>
+    <span class="cmd">ssh</span> user@sunucu-ip<br>
+    <br>
+    <span class="comment"># 2. Node.js 22 LTS kurun (yoksa)</span><br>
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -<br>
+    sudo apt-get install -y nodejs<br>
+    <br>
+    <span class="comment"># 3. Uygulamayı kurun ve derleyin</span><br>
+    <span class="cmd">cd</span> /opt/whatsypzck<br>
+    <span class="cmd">npm install</span><br>
+    <span class="cmd">npm run build</span><br>
+    <br>
+    <span class="comment"># 4. .env dosyasını hazırlayın</span><br>
+    <span class="cmd">cp</span> .env.production .env<br>
+    nano .env  <span class="comment"># Değerleri doldurun</span><br>
+    <br>
+    <span class="comment"># 5. PM2 ile başlatın (otomatik restart)</span><br>
+    <span class="cmd">npm install -g pm2</span><br>
+    <span class="cmd">pm2 start ecosystem.config.js</span><br>
+    <span class="cmd">pm2 save</span><br>
+    <span class="cmd">pm2 startup</span>  <span class="comment"># Sunucu yeniden başladığında otomatik başlasın</span>
+  </div>
+
+  <div class="alert alert-success">
+    <div class="alert-icon">✅</div>
+    <div class="alert-body">
+      <strong>Chromium:</strong> VPS'de Chromium kendi Dockerfile'ınızdan gelir. Manuel kurulum için:
+      <code>sudo apt-get install -y chromium-browser</code>
+      ve <code>PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser</code>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═════════════════════════════════════ BÖLÜM 5: PORT OTOMATIK BULMA ══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="num">5</div>
+    <div class="emoji">🔌</div>
+    <h2>Port Otomatik Bulma</h2>
+  </div>
+
+  <p>
+    WhatsYpzck artık port meşgul olduğunda otomatik olarak bir sonraki boş portu bulup kullanır.
+    Bu özellik hem yerel hem de sunucu ortamında çalışır.
+  </p>
+
+  <div class="card card-teal">
+    <h3 style="border:none;padding:0;color:#0d7377;margin-top:0;">Nasıl Çalışır?</h3>
+    <img src="" alt="" style="display:none;">
+    <ol style="margin-top:12px;padding-left:20px;">
+      <li>Uygulama açılırken <code>.env</code> dosyasındaki <code>PORT</code> değerini okur (varsayılan: 3500).</li>
+      <li>O port meşgulse bir sonrakini (3501, 3502…) dener.</li>
+      <li>Bulduğu portta çalışmaya başlar ve log'a yazar.</li>
+      <li>Launcher (start-installed.ps1) da aynı mantıkla portu bulur ve doğru adresi açar.</li>
+    </ol>
+  </div>
+
+  <div class="code-block">
+    <span class="label">src/index.ts — findFreePort() fonksiyonu</span>
+    <span class="comment">/** Verilen port meşgulse bir sonrakini dener — offline, async. */</span><br>
+    function <span class="cmd">findFreePort</span>(<span class="param">startPort</span>: number): Promise&lt;number&gt; {<br>
+    &nbsp;&nbsp;&nbsp; return new Promise((resolve) => {<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; const server = net.createServer();<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; server.listen(<span class="param">startPort</span>, <span class="string">'0.0.0.0'</span>, () => {<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; const addr = server.address() as net.AddressInfo;<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; server.close(() => resolve(addr.port));<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; });<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; server.on(<span class="string">'error'</span>, () => <span class="cmd">findFreePort</span>(<span class="param">startPort</span> + 1).then(resolve));<br>
+    &nbsp;&nbsp;&nbsp; });<br>
+    }
+  </div>
+
+  <div class="alert alert-info">
+    <div class="alert-icon">💡</div>
+    <div class="alert-body">
+      <strong>Hangi port kullanıldığını öğrenmek için:</strong>
+      Konsol penceresine bakın. <code>Server running on port XXXX</code> satırını arayın.
+      Ya da <code>http://localhost:3500/health</code> deneyip port meşgulsa 3501, 3502... deneyin.
+    </div>
+  </div>
+
+  <h3>Port Yönetimi İpuçları</h3>
+
+  <table>
+    <tr>
+      <th>Durum</th>
+      <th>Sonuç</th>
+    </tr>
+    <tr>
+      <td>.env'de PORT=3500, port boş</td>
+      <td>✅ 3500'de başlar</td>
+    </tr>
+    <tr>
+      <td>.env'de PORT=3500, meşgul</td>
+      <td>⚡ 3501'de otomatik başlar, log'a yazar</td>
+    </tr>
+    <tr>
+      <td>PORT tanımlı değil</td>
+      <td>⚡ 3500'den başlayarak boş port arar</td>
+    </tr>
+    <tr>
+      <td>Hosting ortamı (PORT env var)</td>
+      <td>✅ Platformun verdiği PORT kullanılır</td>
+    </tr>
+  </table>
+</div>
+
+
+<!-- ═══════════════════════════════ BÖLÜM 6: SORUN GİDERME ════════════════ -->
+<div class="page">
+  <div class="section-header">
+    <div class="num">6</div>
+    <div class="emoji">🔧</div>
+    <h2>Sık Sorulan Sorular & Sorun Giderme</h2>
+  </div>
+
+  <h3>❓ "MongoDB bağlanamıyorum" hatası</h3>
+  <div class="card card-amber">
+    <p><strong>Neden olur:</strong> MongoDB servisi çalışmıyor veya port 27017 meşgul.</p>
+    <p><strong>Çözüm (Windows):</strong></p>
+    <div class="code-block">
+      <span class="comment"># MongoDB servisini başlat</span><br>
+      <span class="cmd">Start-Service</span> MongoDB<br>
+      <span class="comment"># veya elle:</span><br>
+      <span class="cmd">mongod</span> --dbpath <span class="string">"C:\data\db"</span> --port 27017
+    </div>
+    <p><strong>Çözüm (Portable):</strong> launch.bat otomatik başlatır. Hata olursa <code>data\mongodb\</code> klasörünün boş olmadığını kontrol edin.</p>
+  </div>
+
+  <h3>❓ "PUPPETEER_EXECUTABLE_PATH eksik" hatası</h3>
+  <div class="card card-amber">
+    <p><strong>Neden olur:</strong> Chromium/Chrome bulunamıyor.</p>
+    <p><strong>Çözüm 1:</strong> Google Chrome kurun — script otomatik bulur.</p>
+    <p><strong>Çözüm 2:</strong> .env dosyasına elle ekleyin:</p>
+    <div class="code-block">
+      PUPPETEER_EXECUTABLE_PATH=<span class="string">C:\Program Files\Google\Chrome\Application\chrome.exe</span>
+    </div>
+  </div>
+
+  <h3>❓ QR kodu görünmüyor</h3>
+  <div class="card card-amber">
+    <p><strong>Adım 1:</strong> <code>http://localhost:PORT/qr</code> adresini doğrudan ziyaret edin.</p>
+    <p><strong>Adım 2:</strong> Admin panelde "Bot Başlat" butonu varsa tıklayın.</p>
+    <p><strong>Adım 3:</strong> Konsol penceresinde hata varsa <code>.wwebjs_auth\</code> klasörünü silip yeniden başlatın:</p>
+    <div class="code-block">
+      <span class="comment"># WhatsApp oturumu sıfırla</span><br>
+      <span class="cmd">Remove-Item</span> <span class="string">'.wwebjs_auth'</span> -Recurse -Force<br>
+      <span class="comment"># Sonra uygulamayı yeniden başlatın</span>
+    </div>
+  </div>
+
+  <h3>❓ Browser açılmıyor / Admin paneline erişemiyorum</h3>
+  <div class="card card-amber">
+    <p>Konsoldaki porta dikkat edin. Tarayıcıda şunları deneyin:</p>
+    <div class="code-block">
+      http://localhost:3500/admin<br>
+      http://localhost:3501/admin<br>
+      http://127.0.0.1:3500/admin
+    </div>
+  </div>
+
+  <h3>❓ "Windows Defender EXE'yi engelledi"</h3>
+  <div class="card card-amber">
+    <p>EXE dosyasına sağ tıkla → <strong>Özellikler</strong> → En altta <strong>"Engeli kaldır"</strong> kutucuğunu işaretle → Tamam → Tekrar çalıştır.</p>
+  </div>
+
+  <h3>❓ Hosting'de bot çalışıyor ama WhasApp bağlanmıyor</h3>
+  <div class="card card-amber">
+    <p>Cloud ortamında WhatsApp oturumu ilk bağlantı sonrası <code>.wwebjs_auth\</code> klasöründe saklanır.
+    Servis yeniden başladığında bu klasör silinirse QR tekrar taranmalıdır. Kalıcı storage için:</p>
+    <ul>
+      <li>Render: Persistent Volume ekleyin → <code>/opt/render/project/src/.wwebjs_auth</code></li>
+      <li>VPS: Klasörü volume mount edin</li>
+      <li>Docker: <code>docker-compose.yml</code>'deki <code>volumes</code> bölümünü kullanın</li>
+    </ul>
+  </div>
+
+  <h3>❓ Inno Setup bulunamadı</h3>
+  <div class="card card-amber">
+    <div class="code-block">
+      <span class="comment"># Inno Setup'ı winget ile kur</span><br>
+      <span class="cmd">winget install</span> <span class="string">JRSoftware.InnoSetup</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════ BÖLÜM 7: KONTROL LİSTESİ ══════════ -->
+<div class="page">
+  <div class="section-header">
+    <div class="num">7</div>
+    <div class="emoji">✅</div>
+    <h2>Kurulum Öncesi Kontrol Listesi</h2>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3>🖥️ Yerel / Offline Kurulum İçin</h3>
+      <div class="card">
+        <ul class="checklist">
+          <li>Windows 10/11 64-bit bilgisayar</li>
+          <li>Yönetici (admin) hesabı</li>
+          <li>İnternet bağlantısı (sadece EXE hazırlama aşamasında)</li>
+          <li>Inno Setup 6 kurulu (geliştirici bilgisayarında)</li>
+          <li><code>build-offline-package.ps1</code> başarıyla tamamlandı</li>
+          <li><code>installer\output\*.exe</code> dosyası oluştu</li>
+          <li>EXE hedef bilgisayara kopyalandı</li>
+          <li>EXE yönetici olarak çalıştırıldı</li>
+          <li>WhatsApp QR kodu tarandı</li>
+        </ul>
+      </div>
+    </div>
+
+    <div>
+      <h3>🌐 Hosting Kurulumu İçin</h3>
+      <div class="card">
+        <ul class="checklist">
+          <li>MongoDB Atlas cluster oluşturuldu</li>
+          <li>Atlas connection string alındı</li>
+          <li>JWT_SECRET (min 32 karakter) oluşturuldu</li>
+          <li>ENCRYPTION_MASTER_KEY (64 hex) oluşturuldu</li>
+          <li>DEFAULT_ADMIN_PASS belirlendi (güçlü)</li>
+          <li>SMTP ayarları yapılandırıldı (e-posta için)</li>
+          <li>ARIZA_TEAM_WHATSAPP numarası girildi</li>
+          <li>Deploy başarıyla tamamlandı</li>
+          <li>WhatsApp QR kodu cloud ortamında tarandı</li>
+          <li>Admin şifresi değiştirildi (ilk girişten sonra)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <h3>🔑 Güvenlik Değerleri Üretme</h3>
+
+  <div class="code-block">
+    <span class="label">PowerShell</span>
+    <span class="comment"># JWT_SECRET oluştur (min 32 karakter)</span><br>
+    [System.Web.Security.Membership]::GeneratePassword(48, 8)<br>
+    <span class="comment"># veya:</span><br>
+    [System.Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))<br>
+    <br>
+    <span class="comment"># ENCRYPTION_MASTER_KEY oluştur (64 hex karakter)</span><br>
+    ([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32) | <br>
+    &nbsp;&nbsp;ForEach-Object { $_.ToString(<span class="string">'x2'</span>) }) -join <span class="string">''</span>
+  </div>
+
+  <div class="alert alert-danger">
+    <div class="alert-icon">🔒</div>
+    <div class="alert-body">
+      <strong>Güvenlik Uyarısı:</strong>
+      JWT_SECRET, ENCRYPTION_MASTER_KEY ve DEFAULT_ADMIN_PASS değerlerini
+      kesinlikle varsayılan bırakmayın. Her kuruluşa özel güçlü değerler oluşturun.
+      Bu değerleri Git'e commit etmeyin ve başkalarıyla paylaşmayın.
+    </div>
+  </div>
+
+  <!-- ══ YENİ ÖZELLİKLER v2.1.0 ══ -->
+  <div class="section-header">
+    <div class="num">✦</div>
+    <span class="emoji">🆕</span>
+    <h2>Yeni Özellikler — v2.1.0 (Nisan 2026)</h2>
+  </div>
+
+  <h3>📊 Multi-Step Memnuniyet Anketi</h3>
+  <div class="card card-green">
+    <p>Arıza kaydı <strong>ÇÖZÜMLENDI</strong> statüsüne alındığında müşteriye otomatik olarak 3 adımlı WhatsApp anketi gönderilir.</p>
+    <table style="margin-top:14px;">
+      <tr><th>Adım</th><th>Bot Sorusu</th><th>Beklenen Yanıt</th></tr>
+      <tr><td><strong>1</strong></td><td>Probleminiz çözüldü mü?</td><td><code>1</code> = Evet &nbsp;/&nbsp; <code>2</code> = Hayır</td></tr>
+      <tr><td><strong>2</strong></td><td>Teknisyen iletişiminden memnun kaldınız mı?</td><td><code>1</code> = Evet &nbsp;/&nbsp; <code>2</code> = Hayır</td></tr>
+      <tr><td><strong>3</strong></td><td>Belirtmek istediğiniz başka bir konu var mı?</td><td>Serbest metin &nbsp;/&nbsp; "Hayır" yazarak geç</td></tr>
+    </table>
+    <p style="margin-top:12px;">Geçersiz giriş durumunda (1 veya 2 dışı) bot soruyu tekrar hatırlatır.</p>
+  </div>
+  <h4>Admin Panelden Anket Yönetimi</h4>
+  <div class="card card-blue">
+    <ol>
+      <li><strong>Admin Panel → Anketler → Anket Ayarları</strong> sekmesini açın</li>
+      <li><em>"Anketi Etkinleştir"</em> toggle'ını açın</li>
+      <li>İlk mesaj ve teşekkür mesajını özelleştirin (<code>{{customerName}}</code>, <code>{{incidentId}}</code> değişkenleri kullanılabilir)</li>
+      <li><strong>Ayarları Kaydet</strong> butonuna tıklayın</li>
+    </ol>
+    <p style="margin-top:10px;">Sonuçları <strong>Admin → Anketler</strong> sayfasında müşteri telefonu veya arıza numarasına göre filtreleyerek görüntüleyin.</p>
+    <table style="margin-top:10px;">
+      <tr><th>İstatistik Kartı</th><th>Açıklama</th></tr>
+      <tr><td>Toplam Gönderilen</td><td>Gönderilmiş tüm anket sayısı</td></tr>
+      <tr><td>Tamamlanan</td><td>Müşterinin 3 adımı da tamamladığı anketler</td></tr>
+      <tr><td>Problem Çözüldü ✅</td><td>1. soruda "Evet" diyen müşteri sayısı</td></tr>
+      <tr><td>Teknisyen Memnun ✅</td><td>2. soruda "Evet" diyen müşteri sayısı</td></tr>
+    </table>
+  </div>
+
+  <h3>👤 Manuel Kişi Ekleme</h3>
+  <div class="card card-blue">
+    <p>Daha önce yalnızca WhatsApp üzerinden mesaj atan kişiler sisteme eklenebiliyordu. Artık admin panelden manuel olarak da kişi eklenebilir.</p>
+    <ol style="margin-top:10px;">
+      <li><strong>Admin Panel → Kişiler</strong> sekmesini açın</li>
+      <li>Sağ üstteki <strong>"Kişi Ekle"</strong> butonuna tıklayın</li>
+      <li>Telefon numarası (ülke kodu dahil, örn: <code>905551234567</code>), ad, soyad ve adres girin</li>
+      <li><strong>Ekle</strong> butonuna tıklayın</li>
+    </ol>
+    <p style="color:#888;font-size:12px;margin-top:10px;">Aynı telefon numarası zaten kayıtlıysa sistem hata mesajı gösterir.</p>
+  </div>
+
+  <hr>
+
+  <div class="card card-teal" style="text-align:center; padding:30px;">
+    <div style="font-size:36px;margin-bottom:12px;">🚀</div>
+    <h3 style="border:none;padding:0;color:#0d7377;font-size:18px;margin-bottom:10px;">WhatsYpzck başarıyla kuruldu!</h3>
+    <p>Sorularınız için proje dokümantasyonuna bakın: <code>docs\</code> klasörü</p>
+    <p style="color:#888;font-size:12px;margin-top:15px;">
+      <em>Geliştirici: Ç. Kurtoğlu &nbsp;·&nbsp; WhatsYpzck v2.1.0 &nbsp;·&nbsp; 16 Nisan 2026</em>
+    </p>
+  </div>
+
+  <!-- Print Butonu -->
+  <div class="no-print" style="text-align:center;margin-top:40px;">
+    <button onclick="window.print()" style="
+      background: linear-gradient(135deg, #0f3460, #0d7377);
+      color: white;
+      border: none;
+      padding: 14px 40px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    ">🖨️ PDF Olarak Kaydet / Yazdır</button>
+    <p style="color:#999;font-size:12px;margin-top:10px;">
+      Browser'da Ctrl+P → "PDF olarak kaydet" seçeneğini kullanın.
+    </p>
+  </div>
+
+  <div class="page-footer">
+    WhatsYpzck Kurulum ve Deployment Rehberi &nbsp;·&nbsp; Ç. Kurtoğlu &nbsp;·&nbsp; v2.1.0 &nbsp;·&nbsp; 16 Nisan 2026
+  </div>
+</div>
+
+</body>
+</html>

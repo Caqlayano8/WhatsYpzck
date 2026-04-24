@@ -42,19 +42,64 @@ window.AdminState = {
   editingContactGroupId:    null,
   incidents:                [],
   incidentSearch:           '',
+  sessionsLoaded:           false,
+  sessions:                 [],
+  sessionQrInstance:        null,
+  maskPhoneNumbers:         true,
+  maskContactNames:         true,
 };
 
 // Central API helper
 async function apiFetch(url, method = 'GET', body = null) {
+  const token = localStorage.getItem('token');
   const opts = {
     method,
     headers: {
-      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   };
+
   const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`${method} ${url} → ${res.status}`);
-  return res.json();
+
+  const parseBody = async () => {
+    if (res.status === 204) return null;
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    if (ct.includes('application/json')) {
+      try { return await res.json(); } catch (_) { return null; }
+    }
+    try {
+      const txt = await res.text();
+      if (!txt) return null;
+      try { return JSON.parse(txt); } catch (_) { return txt; }
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const parsed = await parseBody();
+
+  if (!res.ok) {
+    let errMsg = `${method} ${url} -> ${res.status}`;
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.error) errMsg = parsed.error;
+      else if (parsed.message) errMsg = parsed.message;
+    } else if (typeof parsed === 'string' && parsed.trim()) {
+      errMsg = parsed.trim();
+    }
+
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/admin/login';
+    }
+
+    if (res.status === 403 && typeof window.showToast === 'function') {
+      window.showToast(errMsg || 'Bu işlem için yetkiniz yok', 'warning');
+    }
+
+    throw new Error(errMsg);
+  }
+
+  return parsed;
 }

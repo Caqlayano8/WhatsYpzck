@@ -19,11 +19,43 @@ window.removeAllRestrictions = async function () {
   }
 };
 
+window.toggleMaskPhoneNumbers = async function () {
+  const AS = window.AdminState;
+  try {
+    const newState = !AS.maskPhoneNumbers;
+    const data = await apiFetch('/crm/settings/mask-phone-numbers', 'POST', { enabled: newState });
+    AS.maskPhoneNumbers = !!data.maskPhoneNumbers;
+    const btn = document.getElementById('btn-mask-phone-numbers');
+    if (btn) btn.textContent = AS.maskPhoneNumbers ? 'Maskeleme Açık — Kapat' : 'Maskeleme Kapalı — Aç';
+    showToast(AS.maskPhoneNumbers ? 'Telefon maskeleme açıldı' : 'Telefon maskeleme kapatıldı', 'success');
+  } catch {
+    showToast('Maskeleme ayarı değiştirilemedi', 'error');
+  }
+};
+
+window.toggleMaskContactNames = async function () {
+  const AS = window.AdminState;
+  try {
+    const newState = !AS.maskContactNames;
+    const data = await apiFetch('/crm/settings/mask-contact-names', 'POST', { enabled: newState });
+    AS.maskContactNames = !!data.maskContactNames;
+    const btn = document.getElementById('btn-mask-contact-names');
+    if (btn) btn.textContent = AS.maskContactNames ? 'Maskeleme Açık — Kapat' : 'Maskeleme Kapalı — Aç';
+    showToast(AS.maskContactNames ? 'İsim maskeleme açıldı' : 'İsim maskeleme kapatıldı', 'success');
+  } catch {
+    showToast('Maskeleme ayarı değiştirilemedi', 'error');
+  }
+};
+
 document.addEventListener('DOMContentLoaded', function () {
   const btnAggressive = document.getElementById('btn-aggressive-mode');
   if (btnAggressive) btnAggressive.onclick = window.toggleAggressiveMode;
   const btnRemove = document.getElementById('btn-remove-restrictions');
   if (btnRemove) btnRemove.onclick = window.removeAllRestrictions;
+  const btnMask = document.getElementById('btn-mask-phone-numbers');
+  if (btnMask) btnMask.onclick = window.toggleMaskPhoneNumbers;
+  const btnMaskNames = document.getElementById('btn-mask-contact-names');
+  if (btnMaskNames) btnMaskNames.onclick = window.toggleMaskContactNames;
 });
 // Commands
 
@@ -206,7 +238,7 @@ function renderUsers(list) {
         <div class="flex items-center gap-1">
           ${isSelf
             ? '<span class="text-xs text-gray-400 italic">Siz</span>'
-            : `<button onclick="editUser('${u._id}')"
+              : `<button onclick="editUser('${u._id}')" data-user-id="${u._id}"
                  title="Duzenle"
                  class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg text-xs">
                  <i class="fas fa-pen"></i>
@@ -223,7 +255,7 @@ function renderUsers(list) {
   });
 }
 
-window.openUserModal = function (user = null) {
+window.openUserModal = async function (user = null) {
   const AS = window.AdminState;
   AS.currentUserId = user?._id || null;
   document.getElementById('user-modal-title').textContent = user ? 'Kullanici Duzenle' : 'Kullanici Ekle';
@@ -238,6 +270,22 @@ window.openUserModal = function (user = null) {
   document.getElementById('user-username').classList.toggle('bg-gray-100', !!user);
   document.getElementById('user-username-note').classList.toggle('hidden', !user);
   document.getElementById('user-password-wrap').classList.toggle('hidden', !!user);
+  // Populate allowed sessions list
+  const listEl = document.getElementById('user-allowed-sessions-list');
+  const saved = user?.allowedSessions || [];
+  try {
+    const sessions = await apiFetch('/crm/tenant/sessions', 'GET');
+    const items = Array.isArray(sessions) ? sessions : (sessions.sessions || []);
+    if (items.length === 0) {
+      listEl.innerHTML = '<span class="text-gray-400 italic">Kayitli session yok.</span>';
+    } else {
+      listEl.innerHTML = items.map(s => {
+        const key = `${s.tenantId}:${s.sessionKey}`;
+        const checked = saved.includes(key) ? 'checked' : '';
+        return `<label class="flex items-center gap-2"><input type="checkbox" class="user-session-cb" value="${key}" ${checked}> ${key}</label>`;
+      }).join('');
+    }
+  } catch { listEl.innerHTML = '<span class="text-red-400 italic">Session listesi yuklenemedi.</span>'; }
   document.getElementById('user-modal').classList.remove('hidden');
 };
 
@@ -255,13 +303,14 @@ window.saveUser = async function () {
   const role     = document.getElementById('user-role').value;
   const permissions = readUserPermissionControls(role);
   const id       = document.getElementById('user-modal-id').value;
+  const allowedSessions = Array.from(document.querySelectorAll('.user-session-cb:checked')).map(c => c.value);
 
   if (!username) { showToast('Kullanici adi zorunludur', 'warning'); return; }
   if (!id && !password) { showToast('Yeni kullanici icin sifre zorunludur', 'warning'); return; }
 
   try {
     if (id) {
-      await apiFetch(`/crm/users/${id}`, 'PUT', { role, displayName, phone, permissions });
+      await apiFetch(`/crm/users/${id}`, 'PUT', { role, displayName, phone, permissions, allowedSessions });
       showToast('Kullanici guncellendi', 'success');
     } else {
       await apiFetch('/crm/auth/register', 'POST', { username, password, role, displayName, phone });
@@ -295,6 +344,34 @@ window.deleteUser = async function (id) {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = document.getElementById('user-add-btn');
+  if (addBtn && !addBtn.dataset.boundUserAdd) {
+    addBtn.addEventListener('click', () => window.openUserModal());
+    addBtn.dataset.boundUserAdd = '1';
+  }
+
+  const saveBtn = document.getElementById('user-save-btn');
+  if (saveBtn && !saveBtn.dataset.boundUserSave) {
+    saveBtn.addEventListener('click', () => window.saveUser());
+    saveBtn.dataset.boundUserSave = '1';
+  }
+
+  const tbody = document.getElementById('users-table-body');
+  if (tbody && !tbody.dataset.boundUserTable) {
+    tbody.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const editBtn = target.closest('button[data-user-id]');
+      if (!editBtn) return;
+
+      event.preventDefault();
+      const userId = editBtn.getAttribute('data-user-id');
+      if (userId) window.editUser(userId);
+    });
+    tbody.dataset.boundUserTable = '1';
+  }
+
   const roleEl = document.getElementById('user-role');
   if (!roleEl) return;
   roleEl.addEventListener('change', (e) => {
@@ -350,7 +427,7 @@ function renderTemplatePreview(template, vars) {
 }
 
 function updateNotificationPreview() {
-  const institutionName = String(document.getElementById('notification-institution-name')?.value || 'Coruh EDAS Artvin Il Mudurlugu').trim();
+  const institutionName = String(document.getElementById('notification-institution-name')?.value || 'Kurum Bilgi Sistemi').trim();
   const signatureName = String(document.getElementById('notification-signature-name')?.value || 'C. Kurtoglu').trim();
   const closingLine = String(document.getElementById('notification-closing-line')?.value || 'Bilgilerinize sunariz.').trim();
 
@@ -467,11 +544,56 @@ async function loadSettings() {
       }).join('');
     }
 
+    const aiProviderGrid = document.getElementById('ai-provider-status-grid');
+    if (aiProviderGrid) {
+      const aiProviders = [
+        {
+          label: 'Gemini',
+          configured: !!data.aiProviderStatus?.gemini?.configured,
+          active: !!data.aiProviderStatus?.gemini?.active,
+          detail: 'Anahtar tabanli bulut model'
+        },
+        {
+          label: 'OpenAI',
+          configured: !!data.aiProviderStatus?.openai?.configured,
+          active: !!data.aiProviderStatus?.openai?.active,
+          detail: 'CHAT_GPT_API_KEY ile'
+        },
+        {
+          label: 'Claude',
+          configured: !!data.aiProviderStatus?.claude?.configured,
+          active: !!data.aiProviderStatus?.claude?.active,
+          detail: 'ANTHROPIC_API_KEY ile'
+        },
+        {
+          label: 'Ollama',
+          configured: !!data.aiProviderStatus?.ollama?.configured,
+          active: !!data.aiProviderStatus?.ollama?.active,
+          detail: `${data.aiProviderStatus?.ollama?.baseUrl || 'http://localhost:11434'} / ${data.aiProviderStatus?.ollama?.preferredModel || 'mistral'}${data.aiProviderStatus?.ollama?.enabled ? ' / panel: acik' : ' / panel: kapali'}`
+        }
+      ];
+
+      aiProviderGrid.innerHTML = aiProviders.map((provider) => `
+        <div class="bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-sm font-semibold text-gray-800">${provider.label}</span>
+            <span class="text-xs font-bold px-2.5 py-1 rounded-full ${provider.active ? 'bg-emerald-100 text-emerald-700' : (provider.configured ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600')}">
+              ${provider.active ? 'Aktif' : (provider.configured ? 'Hazir' : 'Eksik')}
+            </span>
+          </div>
+          <div class="text-[11px] text-gray-500">${provider.detail}</div>
+        </div>
+      `).join('');
+    }
+
     document.getElementById('setting-maxFileSizeMb').value = data.maxFileSizeMb ?? 150;
+    document.getElementById('ollama-enabled').checked = !!data.ollamaAssistant?.enabled;
+    document.getElementById('ollama-outside-flow-short-reply-enabled').checked = !!data.ollamaAssistant?.outsideFlowShortReplyEnabled;
+    document.getElementById('ollama-max-reply-chars').value = data.ollamaAssistant?.maxReplyChars ?? 240;
     document.getElementById('setting-defaultAudioAiCommand').value = data.defaultAudioAiCommand || 'chat';
     document.getElementById('incident-whatsapp-numbers').value = (data.incidentRouting?.whatsappNumbers || []).join('\n');
     document.getElementById('incident-email-recipients').value = (data.incidentRouting?.emails || []).join('\n');
-    document.getElementById('notification-institution-name').value = data.notificationTemplates?.institutionName || 'Coruh EDAS Artvin Il Mudurlugu';
+    document.getElementById('notification-institution-name').value = data.notificationTemplates?.institutionName || 'Kurum Bilgi Sistemi';
     document.getElementById('notification-signature-name').value = data.notificationTemplates?.signatureName || 'C. Kurtoglu';
     document.getElementById('notification-closing-line').value = data.notificationTemplates?.closingLine || 'Bilgilerinize sunariz.';
     document.getElementById('notification-status-whatsapp-template').value = data.notificationTemplates?.statusWhatsappTemplate || '';
@@ -481,6 +603,12 @@ async function loadSettings() {
     document.getElementById('bot-template-welcome').value = data.botMessageTemplates?.welcomeMenuMessage || '';
     document.getElementById('bot-template-main-menu').value = data.botMessageTemplates?.mainMenuMessage || '';
     document.getElementById('bot-template-fault-category').value = data.botMessageTemplates?.faultCategoryMessage || '';
+    document.getElementById('bot-template-personalized-menu').value = data.botMessageTemplates?.personalizedMenuMessage || '';
+    document.getElementById('bot-template-info-redirect').value = data.botMessageTemplates?.infoRedirectMessage || '';
+    document.getElementById('bot-template-unknown-question').value = data.botMessageTemplates?.unknownQuestionMessage || '';
+    document.getElementById('bot-template-no-email-fallback').value = data.botMessageTemplates?.noEmailFallbackMessage || '';
+    document.getElementById('bot-template-incident-created-success').value = data.botMessageTemplates?.incidentCreatedSuccessMessage || '';
+    document.getElementById('bot-template-incident-created-dispatch-failed').value = data.botMessageTemplates?.incidentCreatedDispatchFailedMessage || '';
     document.getElementById('bot-template-incident-status-start').value = data.botMessageTemplates?.incidentStatusStartMessage || '';
     document.getElementById('bot-template-incident-status-result').value = data.botMessageTemplates?.incidentStatusResultTemplate || '';
     document.getElementById('bot-template-incident-closure-no-open').value = data.botMessageTemplates?.incidentClosureNoOpenMessage || '';
@@ -496,6 +624,14 @@ async function loadSettings() {
     AS.autoDownloadEnabled = data.autoDownloadEnabled ?? true;
     const toggle = document.getElementById('toggle-autoDownload');
     if (AS.autoDownloadEnabled) toggle.classList.add('on'); else toggle.classList.remove('on');
+
+    AS.maskPhoneNumbers = data.maskPhoneNumbers ?? true;
+    const btnMask = document.getElementById('btn-mask-phone-numbers');
+    if (btnMask) btnMask.textContent = AS.maskPhoneNumbers ? 'Maskeleme Açık — Kapat' : 'Maskeleme Kapalı — Aç';
+
+    AS.maskContactNames = data.maskContactNames ?? true;
+    const btnMaskNames = document.getElementById('btn-mask-contact-names');
+    if (btnMaskNames) btnMaskNames.textContent = AS.maskContactNames ? 'Maskeleme Açık — Kapat' : 'Maskeleme Kapalı — Aç';
 
     keyIds.forEach(k => {
       const el = document.getElementById(`key-${k}`);
@@ -519,6 +655,11 @@ async function saveSettings() {
   }
 
   const defaultAudioAiCommand = document.getElementById('setting-defaultAudioAiCommand').value;
+  const ollamaAssistant = {
+    enabled: !!document.getElementById('ollama-enabled')?.checked,
+    outsideFlowShortReplyEnabled: !!document.getElementById('ollama-outside-flow-short-reply-enabled')?.checked,
+    maxReplyChars: parseInt(document.getElementById('ollama-max-reply-chars')?.value || '240', 10),
+  };
   const keyIds = ['GEMINI_API_KEY', 'CHAT_GPT_API_KEY', 'ANTHROPIC_API_KEY', 'OPENWEATHERMAP_API_KEY', 'SHERPA_ONNX_ASR_ENCODER_PATH', 'SHERPA_ONNX_ASR_DECODER_PATH', 'SHERPA_ONNX_ASR_TOKENS_PATH', 'SHERPA_ONNX_TTS_MODEL_PATH', 'SHERPA_ONNX_TTS_TOKENS_PATH', 'SHERPA_ONNX_TTS_LEXICON_PATH'];
   const incidentRouting = {
     whatsappNumbers: String(document.getElementById('incident-whatsapp-numbers')?.value || '')
@@ -543,6 +684,12 @@ async function saveSettings() {
     welcomeMenuMessage: String(document.getElementById('bot-template-welcome')?.value || '').trim(),
     mainMenuMessage: String(document.getElementById('bot-template-main-menu')?.value || '').trim(),
     faultCategoryMessage: String(document.getElementById('bot-template-fault-category')?.value || '').trim(),
+    personalizedMenuMessage: String(document.getElementById('bot-template-personalized-menu')?.value || '').trim(),
+    infoRedirectMessage: String(document.getElementById('bot-template-info-redirect')?.value || '').trim(),
+    unknownQuestionMessage: String(document.getElementById('bot-template-unknown-question')?.value || '').trim(),
+    noEmailFallbackMessage: String(document.getElementById('bot-template-no-email-fallback')?.value || '').trim(),
+    incidentCreatedSuccessMessage: String(document.getElementById('bot-template-incident-created-success')?.value || '').trim(),
+    incidentCreatedDispatchFailedMessage: String(document.getElementById('bot-template-incident-created-dispatch-failed')?.value || '').trim(),
     incidentStatusStartMessage: String(document.getElementById('bot-template-incident-status-start')?.value || '').trim(),
     incidentStatusResultTemplate: String(document.getElementById('bot-template-incident-status-result')?.value || '').trim(),
     incidentClosureNoOpenMessage: String(document.getElementById('bot-template-incident-closure-no-open')?.value || '').trim(),
@@ -564,7 +711,7 @@ async function saveSettings() {
     author: String(document.getElementById('bot-identity-author')?.value || '').trim() || 'Ç. Kurtoğlu',
   };
   try {
-    await apiFetch('/crm/settings', 'PUT', { maxFileSizeMb, autoDownloadEnabled: AS.autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates, botMessageTemplates, botIdentity });
+    await apiFetch('/crm/settings', 'PUT', { maxFileSizeMb, autoDownloadEnabled: AS.autoDownloadEnabled, defaultAudioAiCommand, ollamaAssistant, apiKeys, incidentRouting, notificationTemplates, botMessageTemplates, botIdentity });
     showToast('Ayarlar kaydedildi', 'success');
     loadSettings();
   } catch {

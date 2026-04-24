@@ -209,26 +209,28 @@
   </div>
   <nav class="flex-1 px-3 py-2 overflow-y-auto">
     <div class="nav-group-label">Genel Bakis</div>
-    <a href="#" id="dashboard-tab" class="nav-item" title="Panel"><span class="nav-icon"><i class="fas fa-home"></i></span><span class="sb-label">Panel</span></a>
-    <a href="#" id="contacts-tab" class="nav-item active" title="Kisiler"><span class="nav-icon"><i class="fas fa-users"></i></span><span class="sb-label">Kisiler</span></a>
-    <a href="#" id="analytics-tab" class="nav-item" title="Analitik"><span class="nav-icon"><i class="fas fa-chart-line"></i></span><span class="sb-label">Analitik</span></a>
-    <a href="#" id="chats-tab" class="nav-item" title="Sohbetler"><span class="nav-icon"><i class="fas fa-comments"></i></span><span class="sb-label">Sohbetler</span><span id="chats-badge" class="ml-auto bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full hidden sb-label">0</span></a>
-    <a href="#" id="scoring-tab" class="nav-item" title="Kisi Puanlama"><span class="nav-icon"><i class="fas fa-star"></i></span><span class="sb-label">Kisi Puanlama</span></a>
-    <a href="#" id="groups-tab" class="nav-item" title="Grup Ozeti"><span class="nav-icon"><i class="fas fa-book-open"></i></span><span class="sb-label">Grup Ozeti</span></a>
+    <a href="/admin?tab=dashboard" id="dashboard-tab" class="nav-item" title="Panel"><span class="nav-icon"><i class="fas fa-home"></i></span><span class="sb-label">Panel</span></a>
+    <a href="/admin?tab=contacts" id="contacts-tab" class="nav-item active" title="Kisiler"><span class="nav-icon"><i class="fas fa-users"></i></span><span class="sb-label">Kisiler</span></a>
+    <a href="/admin?tab=analytics" id="analytics-tab" class="nav-item" title="Analitik"><span class="nav-icon"><i class="fas fa-chart-line"></i></span><span class="sb-label">Analitik</span></a>
+    <a href="/admin?tab=chats" id="chats-tab" class="nav-item" title="Sohbetler"><span class="nav-icon"><i class="fas fa-comments"></i></span><span class="sb-label">Sohbetler</span><span id="chats-badge" class="ml-auto bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full hidden sb-label">0</span></a>
+    <a href="/admin?tab=scoring" id="scoring-tab" class="nav-item" title="Kisi Puanlama"><span class="nav-icon"><i class="fas fa-star"></i></span><span class="sb-label">Kisi Puanlama</span></a>
+    <a href="/admin?tab=survey" id="survey-tab" class="nav-item" title="Anket Sonuclari"><span class="nav-icon"><i class="fas fa-poll"></i></span><span class="sb-label">Anketler</span></a>
+    <a href="/admin?tab=groups" id="groups-tab" class="nav-item" title="Grup Ozeti"><span class="nav-icon"><i class="fas fa-book-open"></i></span><span class="sb-label">Grup Ozeti</span></a>
     <div class="nav-group-label">Mesajlasma</div>
-    <a href="#" id="campaigns-tab" class="nav-item" title="Kampanyalar"><span class="nav-icon"><i class="fas fa-bullhorn"></i></span><span class="sb-label">Kampanyalar</span></a>
-    <a href="#" id="templates-tab" class="nav-item" title="Sablonlar"><span class="nav-icon"><i class="fas fa-layer-group"></i></span><span class="sb-label">Sablonlar</span></a>
-    <a href="#" id="scheduled-messages-tab" class="nav-item" title="Zamanlananlar"><span class="nav-icon"><i class="fas fa-clock"></i></span><span class="sb-label">Zamanlananlar</span></a>
-    <a href="#" id="widget-tab" class="nav-item" title="Web Sitesi Bileseni"><span class="nav-icon"><i class="fas fa-window-maximize"></i></span><span class="sb-label">Web Sitesi Bileseni</span></a>
-    <a href="#" id="flows-tab" class="nav-item" title="Akislar"><span class="nav-icon"><i class="fas fa-project-diagram"></i></span><span class="sb-label">Akislar</span></a>
+    <a href="/admin?tab=campaigns" id="campaigns-tab" class="nav-item" title="Kampanyalar"><span class="nav-icon"><i class="fas fa-bullhorn"></i></span><span class="sb-label">Kampanyalar</span></a>
+    <a href="/admin?tab=templates" id="templates-tab" class="nav-item" title="Sablonlar"><span class="nav-icon"><i class="fas fa-layer-group"></i></span><span class="sb-label">Sablonlar</span></a>
+    <a href="/admin?tab=scheduled-messages" id="scheduled-messages-tab" class="nav-item" title="Zamanlananlar"><span class="nav-icon"><i class="fas fa-clock"></i></span><span class="sb-label">Zamanlananlar</span></a>
+    <a href="/admin?tab=widget" id="widget-tab" class="nav-item" title="Web Sitesi Bileseni"><span class="nav-icon"><i class="fas fa-window-maximize"></i></span><span class="sb-label">Web Sitesi Bileseni</span></a>
+    <a href="/admin?tab=flows" id="flows-tab" class="nav-item" title="Akislar"><span class="nav-icon"><i class="fas fa-project-diagram"></i></span><span class="sb-label">Akislar</span></a>
     <div class="nav-group-label">Sistem</div>
-    <a href="#" id="bot-tab" class="nav-item" title="Bot Durumu"><span class="nav-icon"><i class="fas fa-robot"></i></span><span class="sb-label">Bot Durumu</span></a>
-    <a href="#" id="commands-tab" class="nav-item" title="Komutlar"><span class="nav-icon"><i class="fas fa-terminal"></i></span><span class="sb-label">Komutlar</span></a>
-    <a href="#" id="users-tab" class="nav-item" title="Kullanicilar"><span class="nav-icon"><i class="fas fa-user-shield"></i></span><span class="sb-label">Kullanicilar</span></a>
-    <a href="#" id="incidents-tab" class="nav-item" title="Ariza Kayitlari"><span class="nav-icon"><i class="fas fa-triangle-exclamation"></i></span><span class="sb-label">Ariza Kayitlari</span></a>
-    <a href="#" id="audit-tab" class="nav-item" title="Denetim Kaydi"><span class="nav-icon"><i class="fas fa-history"></i></span><span class="sb-label">Denetim Kaydi</span></a>
-    <a href="#" id="integrations-tab" class="nav-item" title="Entegrasyonlar"><span class="nav-icon"><i class="fas fa-plug"></i></span><span class="sb-label">Entegrasyonlar</span></a>
-    <a href="#" id="settings-tab" class="nav-item" title="Ayarlar"><span class="nav-icon"><i class="fas fa-cog"></i></span><span class="sb-label">Ayarlar</span></a>
+    <a href="/admin?tab=bot" id="bot-tab" class="nav-item" title="Bot Durumu"><span class="nav-icon"><i class="fas fa-robot"></i></span><span class="sb-label">Bot Durumu</span></a>
+    <a href="/admin?tab=commands" id="commands-tab" class="nav-item" title="Komutlar"><span class="nav-icon"><i class="fas fa-terminal"></i></span><span class="sb-label">Komutlar</span></a>
+    <a href="/admin?tab=users" id="users-tab" class="nav-item" title="Kullanicilar"><span class="nav-icon"><i class="fas fa-user-shield"></i></span><span class="sb-label">Kullanicilar</span></a>
+    <a href="/admin?tab=tenants" id="tenants-tab" class="nav-item" title="Kiracılar (Tenants)"><span class="nav-icon"><i class="fas fa-building"></i></span><span class="sb-label">Kiracılar</span></a>
+    <a href="/admin?tab=incidents" id="incidents-tab" class="nav-item" title="Ariza Kayitlari"><span class="nav-icon"><i class="fas fa-triangle-exclamation"></i></span><span class="sb-label">Ariza Kayitlari</span></a>
+    <a href="/admin?tab=audit" id="audit-tab" class="nav-item" title="Denetim Kaydi"><span class="nav-icon"><i class="fas fa-history"></i></span><span class="sb-label">Denetim Kaydi</span></a>
+    <a href="/admin?tab=integrations" id="integrations-tab" class="nav-item" title="Entegrasyonlar"><span class="nav-icon"><i class="fas fa-plug"></i></span><span class="sb-label">Entegrasyonlar</span></a>
+    <a href="/admin?tab=settings" id="settings-tab" class="nav-item" title="Ayarlar"><span class="nav-icon"><i class="fas fa-cog"></i></span><span class="sb-label">Ayarlar</span></a>
     <a href="/admin/security" id="security-tab" class="nav-item" title="Güvenlik / 2FA"><span class="nav-icon"><i class="fas fa-shield-alt"></i></span><span class="sb-label">Güvenlik</span></a>
   </nav>
   <div id="sidebar-footer-wrap" class="px-4 py-3 border-t border-gray-100 flex-shrink-0">
@@ -269,6 +271,16 @@
         <div id="recent-audit-widget" class="p-4 text-sm text-gray-400 italic">Yukleniyor...</div>
       </div>
     </div>
+    <!-- Multi-Tenant Session Overview -->
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-4">
+      <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="font-semibold text-gray-900 text-sm"><i class="fas fa-plug mr-1.5 text-indigo-400"></i>Session Durumu</h2>
+        <button onclick="loadSessionsOverview()" class="text-xs text-indigo-500 hover:text-indigo-700 font-medium"><i class="fas fa-sync-alt mr-1"></i>Yenile</button>
+      </div>
+      <div id="sessions-overview-grid" class="p-4 grid gap-3" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
+        <p class="text-xs text-gray-400 col-span-full">Yükleniyor...</p>
+      </div>
+    </div>
     <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden">
       <div class="px-6 py-4 border-b border-gray-100"><h2 class="font-semibold text-gray-900 text-sm">Son Kisiler</h2></div>
       <table class="w-full text-left"><thead><tr class="border-b border-gray-100 bg-gray-50"><th class="px-6 py-3 text-xs font-semibold text-gray-500">Ad</th><th class="px-6 py-3 text-xs font-semibold text-gray-500">Telefon</th><th class="px-6 py-3 text-xs font-semibold text-gray-500">Dil</th><th class="px-6 py-3 text-xs font-semibold text-gray-500">Son gorulme</th></tr></thead><tbody id="recent-contacts"></tbody></table>
@@ -280,6 +292,7 @@
     <div class="flex items-center justify-between mb-6">
       <div><h1 class="text-2xl font-bold text-gray-900">Kisiler</h1><p class="text-sm text-gray-500 mt-0.5">Bot ile etkilesime giren kisiler</p></div>
       <div class="flex items-center gap-2">
+        <button id="contact-add-btn" onclick="openAddContactModal()" class="flex items-center gap-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl font-medium transition-colors"><i class="fas fa-user-plus text-xs"></i> Kişi Ekle</button>
         <button onclick="openImportModal()" class="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl font-medium transition-colors"><i class="fas fa-file-import text-xs"></i> CSV Ice Aktar</button>
         <button onclick="exportContacts()" class="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl font-medium transition-colors"><i class="fas fa-file-export text-xs"></i> CSV Disa Aktar</button>
       </div>
@@ -297,7 +310,8 @@
         <table class="w-full text-left" style="min-width:780px;">
           <thead><tr class="border-b border-gray-100 bg-gray-50">
             <th class="px-5 py-3 text-xs font-semibold text-gray-500">Telefon</th>
-            <th class="px-5 py-3 text-xs font-semibold text-gray-500">Ad</th>
+            <th class="px-5 py-3 text-xs font-semibold text-gray-500">Ad Soyad</th>
+            <th class="px-5 py-3 text-xs font-semibold text-gray-500">Adres</th>
             <th class="px-5 py-3 text-xs font-semibold text-gray-500">Dil</th>
             <th class="px-5 py-3 text-xs font-semibold text-gray-500">Tags</th>
             <th class="px-5 py-3 text-xs font-semibold text-gray-500">Son gorulme</th>
@@ -327,10 +341,10 @@
   <div id="campaigns-section" class="section-content hidden p-6">
     <div class="flex items-center justify-between mb-5">
       <div><h1 class="text-2xl font-bold text-gray-900">Kampanyalar</h1><p class="text-sm text-gray-500 mt-0.5">Kisilere toplu mesaj gonderimi</p></div>
-      <button onclick="openCampaignModal()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"><i class="fas fa-plus text-xs"></i> New Campaign</button>
+      <button onclick="openCampaignModal()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"><i class="fas fa-plus text-xs"></i> Yeni Kampanya</button>
     </div>
     <div class="grid grid-cols-4 gap-3 mb-5">
-      <div class="stat-card text-center"><div class="text-xl font-bold text-gray-900" id="camp-total">0</div><div class="text-xs text-gray-500 mt-0.5">Total</div></div>
+      <div class="stat-card text-center"><div class="text-xl font-bold text-gray-900" id="camp-total">0</div><div class="text-xs text-gray-500 mt-0.5">Toplam</div></div>
       <div class="stat-card text-center"><div class="text-xl font-bold text-green-600" id="camp-sent">0</div><div class="text-xs text-gray-500 mt-0.5">Gonderildi</div></div>
       <div class="stat-card text-center"><div class="text-xl font-bold text-blue-600" id="camp-scheduled">0</div><div class="text-xs text-gray-500 mt-0.5">Zamanlananlar</div></div>
       <div class="stat-card text-center"><div class="text-xl font-bold text-red-500" id="camp-failed">0</div><div class="text-xs text-gray-500 mt-0.5">Basarisiz</div></div>
@@ -338,12 +352,12 @@
     <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden">
       <table class="w-full text-left"><thead><tr class="border-b border-gray-100 bg-gray-50">
         <th class="px-5 py-3 text-xs font-semibold text-gray-500">Ad</th>
-        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Status</th>
+        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Durum</th>
         <th class="px-5 py-3 text-xs font-semibold text-gray-500">Alicilar</th>
-        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Sent / Failed</th>
-        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Recurring</th>
+        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Gonderilen / Basarisiz</th>
+        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Tekrar</th>
         <th class="px-5 py-3 text-xs font-semibold text-gray-500">Zamanlananlar</th>
-        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Actions</th>
+        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Islemler</th>
       </tr></thead><tbody id="campaigns-table-body"></tbody></table>
     </div>
   </div>
@@ -355,13 +369,13 @@
       <button onclick="openNewTemplateModal()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"><i class="fas fa-plus text-xs"></i> Yeni Sablon</button>
     </div>
     <div class="flex items-center gap-3 mb-4">
-      <div class="relative flex-grow" style="max-width:300px;"><i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i><input id="template-search" type="text" placeholder="Search templates…" class="field pl-8 py-2" style="font-size:0.82rem;"></div>
+      <div class="relative flex-grow" style="max-width:300px;"><i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i><input id="template-search" type="text" placeholder="Sablon ara..." class="field pl-8 py-2" style="font-size:0.82rem;"></div>
       <select id="template-category-filter" onchange="filterTemplatesByCategory()" class="field py-2" style="width:160px;font-size:0.82rem;">
-        <option value="">All categories</option>
-        <option value="general">General</option>
-        <option value="promo">Promo</option>
-        <option value="support">Support</option>
-        <option value="onboarding">Onboarding</option>
+        <option value="">Tum kategoriler</option>
+        <option value="general">Genel</option>
+        <option value="promo">Tanitim</option>
+        <option value="support">Destek</option>
+        <option value="onboarding">Ilk Kullanim</option>
       </select>
     </div>
     <div id="templates-grid" class="grid gap-4" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));"></div>
@@ -387,6 +401,74 @@
   <!-- Bot Status -->
   <div id="bot-section" class="section-content hidden p-6">
     <div class="mb-6"><h1 class="text-2xl font-bold text-gray-900">Bot Durumu</h1><p class="text-sm text-gray-500 mt-0.5">Baglanti takibi ve canli kayitlar</p></div>
+
+    <!-- Session Management Card -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-5 mb-5">
+      <div class="text-sm font-semibold text-gray-700 mb-4">Session Yönetimi</div>
+      <div class="grid gap-4" style="grid-template-columns:1fr 1fr;">
+        <!-- Session Selector -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-2">Session Seç</label>
+          <select id="session-selector" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-indigo-500">
+            <option value="">-- Seş Seç --</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">Yönetmek istediğiniz oturumu seçin</p>
+        </div>
+        <!-- Quick Actions -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-2">İşlemler</label>
+          <div class="flex gap-2">
+            <button id="session-add-btn" onclick="createNewSession()" class="flex-1 flex items-center justify-center gap-1 text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-semibold transition-colors">
+              <i class="fas fa-plus text-xs"></i> Yeni Session
+            </button>
+            <button onclick="deleteSelectedSession()" class="flex-1 flex items-center justify-center gap-1 text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-semibold transition-colors">
+              <i class="fas fa-trash text-xs"></i> Sil
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Session Details -->
+      <div id="session-details-area" class="mt-5 pt-5 border-t border-gray-200 hidden">
+        <div class="grid gap-4" style="grid-template-columns:1fr 1fr;">
+          <div class="space-y-2 text-xs">
+            <div class="flex justify-between">
+              <span class="text-gray-500">Durum:</span>
+              <span id="session-status-badge" class="px-2 py-1 rounded text-white font-medium bg-gray-400">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">Telefon:</span>
+              <code id="session-phone" class="text-gray-700 font-mono">--</code>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">Adı:</span>
+              <span id="session-pushname" class="text-gray-700">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">Oluşturuldu:</span>
+              <span id="session-created" class="text-gray-700 text-xs">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">Arıza Kayıtları:</span>
+              <span id="session-incident-count" class="text-gray-700 font-semibold">--</span>
+            </div>
+          </div>
+          <!-- QR Display -->
+          <div>
+            <div class="text-xs font-medium text-gray-600 mb-2">QR Kod</div>
+            <div id="session-qr-container" class="flex justify-center p-3 bg-gray-50 border border-gray-200 rounded-lg min-h-[150px] items-center">
+              <span class="text-xs text-gray-500">Scanning bekleniyor...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reconnect Button -->
+        <button onclick="reconnectSession()" class="w-full mt-4 flex items-center justify-center gap-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors">
+          <i class="fas fa-sync-alt"></i> Session Yeniden Başlat
+        </button>
+      </div>
+    </div>
+
     <div class="grid gap-5 mb-5" style="grid-template-columns:1fr 1fr;">
       <div class="bg-white border border-gray-200 rounded-2xl p-5">
         <div class="text-sm font-semibold text-gray-700 mb-4">Connection</div>
@@ -443,16 +525,44 @@
   <div id="users-section" class="section-content hidden p-6">
     <div class="flex items-center justify-between mb-6">
       <div><h1 class="text-2xl font-bold text-gray-900">Kullanicilar</h1><p class="text-sm text-gray-500 mt-0.5">Mobil ve admin giris hesaplarini buradan yonetin</p></div>
-      <button onclick="openUserModal()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"><i class="fas fa-plus text-xs"></i> Kullanici Ekle</button>
+      <button id="user-add-btn" onclick="openUserModal()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"><i class="fas fa-plus text-xs"></i> Kullanici Ekle</button>
     </div>
     <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden">
       <table class="w-full text-left"><thead><tr class="border-b border-gray-100 bg-gray-50">
-        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Username</th>
-        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Role</th>
+        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Kullanici Adi</th>
+        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Rol</th>
         <th class="px-6 py-3 text-xs font-semibold text-gray-500">Telefon</th>
-        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Created</th>
-        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Actions</th>
+        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Olusturulma</th>
+        <th class="px-6 py-3 text-xs font-semibold text-gray-500">Islemler</th>
       </tr></thead><tbody id="users-table-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- Tenants Section -->
+  <div id="tenants-section" class="section-content hidden p-6">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Kiracılar (Tenants)</h1>
+        <p class="text-sm text-gray-500 mt-0.5">Çok kiracılı yapıdaki tüm organizasyonları yönetin</p>
+      </div>
+      <button id="tenant-add-btn" onclick="openTenantModal()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"><i class="fas fa-plus text-xs"></i> Kiracı Ekle</button>
+    </div>
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-100">
+          <tr>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Kod</th>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ad</th>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Telefon</th>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Tier</th>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Durum</th>
+            <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">İşlem</th>
+          </tr>
+        </thead>
+        <tbody id="tenants-table-body">
+          <tr><td colspan="6" class="text-center py-10 text-gray-400"><i class="fas fa-circle-notch fa-spin mr-2"></i>Yükleniyor...</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -512,7 +622,7 @@
             </div>
             <div class="flex justify-end gap-2 mt-4">
               <button type="button" onclick="closeIncidentStatusModal()" class="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">İptal</button>
-              <button type="submit" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">Kaydet</button>
+              <button type="button" onclick="submitIncidentStatusForm(event)" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">Kaydet</button>
             </div>
           </form>
         </div>
@@ -634,6 +744,107 @@
           <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Telefon</th>
           <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Puan</th>
         </tr></thead><tbody id="leaderboard-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anket Sonuçları -->
+  <div id="survey-section" class="section-content hidden p-6">
+    <div class="mb-6 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Anket Sonuçları</h1>
+        <p class="text-sm text-gray-500 mt-0.5">Müşteri memnuniyeti anket yanıtları ve ayarları</p>
+      </div>
+      <button onclick="saveSurveySettings()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold">
+        <i class="fas fa-save text-xs"></i> Ayarları Kaydet
+      </button>
+    </div>
+
+    <!-- İstatistik kartları -->
+    <div class="grid gap-6 mb-6" style="grid-template-columns:repeat(4,1fr)">
+      <div class="bg-white border border-gray-200 rounded-2xl p-5 text-center">
+        <div class="text-3xl font-bold text-indigo-600" id="survey-stat-total">—</div>
+        <div class="text-sm text-gray-500 mt-1">Toplam Gönderilen</div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-2xl p-5 text-center">
+        <div class="text-3xl font-bold text-green-600" id="survey-stat-completed">—</div>
+        <div class="text-sm text-gray-500 mt-1">Tamamlanan</div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-2xl p-5 text-center">
+        <div class="text-3xl font-bold text-emerald-500" id="survey-stat-solution">—</div>
+        <div class="text-sm text-gray-500 mt-1">Problem Çözüldü ✅</div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-2xl p-5 text-center">
+        <div class="text-3xl font-bold text-blue-500" id="survey-stat-tech">—</div>
+        <div class="text-sm text-gray-500 mt-1">Teknisyen Memnun ✅</div>
+      </div>
+    </div>
+
+    <!-- Filtreler -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-4 mb-4 flex flex-wrap gap-3 items-center">
+      <div class="flex-1 min-w-48">
+        <input id="survey-filter-phone" type="text" class="field text-sm" placeholder="Müşteri telefon numarası ile filtrele...">
+      </div>
+      <div class="flex-1 min-w-36">
+        <input id="survey-filter-incident" type="text" class="field text-sm" placeholder="Arıza No filtrele...">
+      </div>
+      <button onclick="loadSurveys(1)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5">
+        <i class="fas fa-search text-xs"></i> Ara
+      </button>
+      <button onclick="document.getElementById('survey-filter-phone').value='';document.getElementById('survey-filter-incident').value='';loadSurveys(1)" class="text-sm text-gray-500 hover:text-gray-700 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50">
+        Temizle
+      </button>
+    </div>
+
+    <div class="grid gap-6" style="grid-template-columns:1fr 360px">
+      <!-- Anket listesi -->
+      <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100">
+          <h2 class="font-semibold text-gray-900 text-sm">Yanıtlar</h2>
+        </div>
+        <table class="w-full text-left">
+          <thead><tr class="border-b border-gray-100 bg-gray-50">
+            <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Arıza No</th>
+            <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Müşteri</th>
+            <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Çözüm</th>
+            <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Teknisyen</th>
+            <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Yorum</th>
+            <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Durum</th>
+            <th class="px-4 py-2.5 text-xs font-semibold text-gray-500">Tarih</th>
+          </tr></thead>
+          <tbody id="survey-responses-body">
+            <tr><td colspan="7" class="px-4 py-8 text-center text-sm text-gray-400">Yükleniyor...</td></tr>
+          </tbody>
+        </table>
+        <div id="survey-pagination" class="px-4 py-3 border-t border-gray-100 flex justify-center gap-2"></div>
+      </div>
+
+      <!-- Anket ayarları -->
+      <div class="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 self-start">
+        <h2 class="font-semibold text-gray-900 text-sm mb-3">Anket Ayarları</h2>
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm font-medium text-gray-700">Anketi Etkinleştir</div>
+            <div class="text-xs text-gray-400">Arıza çözüldüğünde otomatik anket gönder</div>
+          </div>
+          <div>
+            <input type="checkbox" id="survey-enabled" style="display:none">
+            <button type="button" id="survey-enabled-btn"
+              onclick="var cb=document.getElementById('survey-enabled');cb.checked=!cb.checked;this.style.backgroundColor=cb.checked?'#4f46e5':'#d1d5db';this.querySelector('span').style.transform=cb.checked?'translateX(20px)':'translateX(2px)';"
+              style="position:relative;display:inline-flex;width:44px;height:24px;border-radius:9999px;border:none;cursor:pointer;background-color:#d1d5db;transition:background-color 0.2s;padding:0;outline:none;">
+              <span style="position:absolute;top:4px;left:0;width:16px;height:16px;background:white;border-radius:9999px;transform:translateX(2px);transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span>
+            </button>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-gray-500 block mb-1">İlk Anket Mesajı</label>
+          <textarea id="survey-message" rows="6" class="field resize-none text-sm" placeholder="Anket başlangıç mesajını buraya yazın..."></textarea>
+          <p class="text-xs text-gray-400 mt-1">Değişkenler: &#123;&#123;customerName&#125;&#125;, &#123;&#123;incidentId&#125;&#125;</p>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-gray-500 block mb-1">Teşekkür Mesajı</label>
+          <textarea id="survey-thanks" rows="3" class="field resize-none text-sm" placeholder="Anket tamamlandığında gönderilecek mesaj..."></textarea>
+        </div>
       </div>
     </div>
   </div>
@@ -1335,6 +1546,29 @@
         <div class="grid grid-cols-3 gap-3" id="api-keys-status-grid"></div>
       </div>
       <div class="bg-white border border-gray-200 rounded-2xl p-5">
+        <div class="text-sm font-semibold text-gray-800 mb-1">AI Saglayici Durumu</div>
+        <div class="text-xs text-gray-500 mb-4">Hangi saglayici aktif, hangileri sadece yapilandirilmis ve Ollama baglanti durumu</div>
+        <div class="grid grid-cols-2 gap-3" id="ai-provider-status-grid"></div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-2xl p-5">
+        <div class="text-sm font-semibold text-gray-800 mb-1">Ollama Kontrolu</div>
+        <div class="text-xs text-gray-500 mb-4">Ollama'yi panelden aktif/pasif yapabilir, bot disi sorular icin kisa ozet cevap modunu acabilirsiniz.</div>
+        <div class="grid grid-cols-3 gap-4 items-end">
+          <label class="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" id="ollama-enabled" class="h-4 w-4">
+            <span>Ollama genel olarak aktif</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" id="ollama-outside-flow-short-reply-enabled" class="h-4 w-4">
+            <span>Bot disi sorularda kisa ozet cevap ver</span>
+          </label>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Maksimum Kisa Cevap Uzunlugu (karakter)</label>
+            <input type="number" id="ollama-max-reply-chars" class="field" min="80" max="800" value="240">
+          </div>
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-2xl p-5">
         <div class="text-sm font-semibold text-gray-800 mb-1">Anahtarları ve Yerel Ses Çalışma Zamanını Güncelle</div>
         <div class="text-xs text-gray-500 mb-4">Güvenli bir şekilde saklanır ve çalışma zamanında uygulanır. Mevcut değeri korumak için boş bırakın.</div>
         <div class="grid grid-cols-2 gap-4">
@@ -1384,7 +1618,7 @@
         <div class="grid grid-cols-3 gap-4 mb-4">
           <div>
             <label class="text-xs font-semibold text-gray-500 block mb-1">Kurum Adi</label>
-            <input id="notification-institution-name" class="field" placeholder="Coruh EDAS Artvin Il Mudurlugu">
+            <input id="notification-institution-name" class="field" placeholder="Kurum Bilgi Sistemi">
           </div>
           <div>
             <label class="text-xs font-semibold text-gray-500 block mb-1">Imza</label>
@@ -1457,6 +1691,30 @@
             <textarea id="bot-template-fault-category" rows="8" class="field resize-none" placeholder="Ariza kategori secim mesaji"></textarea>
           </div>
           <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kisisel Menu Mesaji</label>
+            <textarea id="bot-template-personalized-menu" rows="6" class="field resize-none" placeholder="{{firstName}} degiskenini kullanabilirsiniz"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Bilgi/Temsilci Yonlendirme Mesaji</label>
+            <textarea id="bot-template-info-redirect" rows="6" class="field resize-none" placeholder="186 yonlendirme metni"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Tanimlanamayan Soru Mesaji</label>
+            <textarea id="bot-template-unknown-question" rows="6" class="field resize-none" placeholder="Kapsam disi sorular icin varsayilan cevap"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">E-posta Yok Geri Donus Mesaji</label>
+            <textarea id="bot-template-no-email-fallback" rows="5" class="field resize-none" placeholder="E-posta yok dediginde gonderilecek metin"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kayit Olustu Basarili Mesaj</label>
+            <textarea id="bot-template-incident-created-success" rows="5" class="field resize-none" placeholder="Kayit olustu ve yonlendirme basarili metni"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-gray-500 block mb-1">Kayit Olustu Yonlendirme Hatasi Mesaji</label>
+            <textarea id="bot-template-incident-created-dispatch-failed" rows="5" class="field resize-none" placeholder="Kayit olustu ama yonlendirme hatasi metni"></textarea>
+          </div>
+          <div>
             <label class="text-xs font-semibold text-gray-500 block mb-1">Ariza Durum Sorgu Baslangic Mesaji</label>
             <textarea id="bot-template-incident-status-start" rows="4" class="field resize-none" placeholder="Ad soyad isteme mesaji"></textarea>
           </div>
@@ -1518,6 +1776,28 @@
           </div>
           <button type="button" id="btn-remove-restrictions" class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors">Kısıtlamaları Kaldır</button>
         </div>
+        </div>
+      </div>
+
+      <!-- Telefon Numarası Maskeleme -->
+      <div class="bg-white border border-gray-200 rounded-2xl p-5">
+        <div class="flex items-center gap-6">
+          <div>
+            <div class="text-sm font-semibold text-gray-800">Telefon Numarası Maskeleme</div>
+            <div class="text-xs text-gray-500">Müşteri telefon numaralarının son 6 hanesi yıldız (******) olarak gösterilir. Video çekimlerinde gizlilik sağlar.</div>
+          </div>
+          <button type="button" id="btn-mask-phone-numbers" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors whitespace-nowrap">Maskeleme Açık — Kapat</button>
+        </div>
+      </div>
+
+      <!-- Kişi İsmi Maskeleme -->
+      <div class="bg-white border border-gray-200 rounded-2xl p-5">
+        <div class="flex items-center gap-6">
+          <div>
+            <div class="text-sm font-semibold text-gray-800">Kişi İsmi Maskeleme</div>
+            <div class="text-xs text-gray-500">Müşteri isimleri her kelimenin ilk harfi bırakılarak gizlenir (örn: "Ahmet Yılmaz" → "A*** Y***"). Video çekimlerinde gizlilik sağlar.</div>
+          </div>
+          <button type="button" id="btn-mask-contact-names" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors whitespace-nowrap">Maskeleme Açık — Kapat</button>
         </div>
       </div>
 
@@ -1826,10 +2106,89 @@
           <label class="flex items-center gap-2"><input type="checkbox" id="user-perm-canViewReports"> Raporlari gorebilir</label>
         </div>
       </div>
+      <div id="user-sessions-wrap" class="border border-gray-200 rounded-xl p-3.5 bg-gray-50">
+        <label class="text-xs font-semibold text-gray-500 block mb-1">İzin Verilen Session'lar</label>
+        <p class="text-xs text-gray-400 mb-2">Bos birakilirsa tum session'lara erisebilir. Secilen session'larla kisitlanir.</p>
+        <div id="user-allowed-sessions-list" class="grid grid-cols-1 gap-1.5 text-xs text-gray-700 max-h-32 overflow-y-auto">
+          <span class="text-gray-400 italic">Session yukleniyor...</span>
+        </div>
+      </div>
     </div>
     <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
       <button onclick="closeUserModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">Iptal</button>
-      <button onclick="saveUser()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-sm font-semibold">Save</button>
+      <button id="user-save-btn" onclick="saveUser()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-sm font-semibold">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Session Create Modal -->
+<div id="session-create-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+  <div class="modal-backdrop absolute inset-0" onclick="closeSessionCreateModal()"></div>
+  <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <h2 class="text-lg font-bold text-gray-900">Yeni Session Oluştur</h2>
+      <button onclick="closeSessionCreateModal()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-6 space-y-4">
+      <div>
+        <label class="text-xs font-semibold text-gray-500 block mb-1">Tenant</label>
+        <select id="new-session-tenant" class="field">
+          <option value="default">default (varsayılan)</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-500 block mb-1">Session Anahtar Adı * <span class="font-normal text-gray-400">(ör: support, night-shift)</span></label>
+        <input id="new-session-key" class="field" placeholder="support" pattern="[a-zA-Z0-9_-]+">
+        <p class="text-xs text-gray-400 mt-1">Sadece harf, rakam, tire ve alt çizgi kullanılabilir.</p>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-500 block mb-1">Görünen Ad</label>
+        <input id="new-session-name" class="field" placeholder="Destek Hattı">
+      </div>
+    </div>
+    <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
+      <button onclick="closeSessionCreateModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">İptal</button>
+      <button id="session-create-submit-btn" onclick="submitSessionCreate()" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl text-sm font-semibold">Oluştur</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tenant Modal -->
+<div id="tenant-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+  <div class="modal-backdrop absolute inset-0" onclick="closeTenantModal()"></div>
+  <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <h2 id="tenant-modal-title" class="text-lg font-bold text-gray-900">Kiracı Ekle</h2>
+      <button onclick="closeTenantModal()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-6 space-y-4">
+      <input type="hidden" id="tenant-modal-id">
+      <div><label class="text-xs font-semibold text-gray-500 block mb-1">Kod * <span class="font-normal text-gray-400">(benzersiz, küçük harf, örn: acme-corp)</span></label><input id="tenant-code" class="field" placeholder="acme-corp"></div>
+      <p id="tenant-code-note" class="hidden text-xs text-gray-400 -mt-2">Mevcut kiracıda kod değiştirilemez.</p>
+      <div><label class="text-xs font-semibold text-gray-500 block mb-1">Ad *</label><input id="tenant-name" class="field" placeholder="ACME Şirketi"></div>
+      <div><label class="text-xs font-semibold text-gray-500 block mb-1">Açıklama</label><input id="tenant-description" class="field" placeholder="İsteğe bağlı açıklama"></div>
+      <div><label class="text-xs font-semibold text-gray-500 block mb-1">WhatsApp Numarası</label><input id="tenant-phone" class="field" placeholder="905xxxxxxxxx"></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Tier</label>
+          <select id="tenant-tier" class="field">
+            <option value="free">Free</option>
+            <option value="basic">Basic</option>
+            <option value="pro">Pro</option>
+            <option value="enterprise">Enterprise</option>
+          </select>
+        </div>
+        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Durum</label>
+          <select id="tenant-status" class="field">
+            <option value="active">Aktif</option>
+            <option value="inactive">Pasif</option>
+            <option value="suspended">Askıya Alındı</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
+      <button onclick="closeTenantModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">İptal</button>
+      <button id="tenant-save-btn" onclick="saveTenant()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-sm font-semibold">Kaydet</button>
     </div>
   </div>
 </div>
@@ -1855,18 +2214,91 @@
   </div>
 </div>
 
+<!-- Contact Edit Modal -->
+<div id="contact-edit-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+  <div class="modal-backdrop absolute inset-0" onclick="closeContactEditModal()"></div>
+  <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <h2 class="text-lg font-bold text-gray-900"><i class="fas fa-address-card mr-2 text-indigo-500"></i>Kişi Bilgilerini Düzenle</h2>
+      <button onclick="closeContactEditModal()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-6 space-y-4">
+      <input type="hidden" id="contact-edit-id">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ad</label>
+          <input id="contact-edit-name" type="text" class="field" placeholder="Ad">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Soyad</label>
+          <input id="contact-edit-lastname" type="text" class="field" placeholder="Soyad">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Telefon Numarası</label>
+        <input id="contact-edit-phone" type="text" class="field bg-gray-50 text-gray-500 cursor-not-allowed" readonly>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Adres</label>
+        <textarea id="contact-edit-address" rows="3" class="field resize-none" placeholder="Sokak, Mahalle, İlçe, İl..."></textarea>
+      </div>
+      <p class="text-xs text-gray-400"><i class="fas fa-info-circle mr-1"></i>Kaydedilen bilgiler bot tarafından otomatik olarak tanınır; tekrar isim sorulmaz.</p>
+    </div>
+    <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
+      <button onclick="closeContactEditModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">İptal</button>
+      <button id="contact-edit-save-btn" onclick="saveContactEdit()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-sm font-semibold"><i class="fas fa-save text-xs mr-1.5"></i>Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Kişi Ekle Modal -->
+<div id="add-contact-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+  <div class="modal-backdrop absolute inset-0" onclick="closeAddContactModal()"></div>
+  <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <h2 class="text-lg font-bold text-gray-900"><i class="fas fa-user-plus mr-2 text-indigo-500"></i>Yeni Kişi Ekle</h2>
+      <button onclick="closeAddContactModal()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-6 space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Telefon Numarası <span class="text-red-500">*</span></label>
+        <input id="add-contact-phone" type="text" class="field" placeholder="Örn: 905551234567 (başında 0 olmadan, ülke kodu dahil)">
+        <p class="text-xs text-gray-400 mt-1">Boşluk veya + olmadan, ülke kodu ile birlikte girin</p>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ad</label>
+          <input id="add-contact-name" type="text" class="field" placeholder="Ad">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Soyad</label>
+          <input id="add-contact-lastname" type="text" class="field" placeholder="Soyad">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Adres</label>
+        <textarea id="add-contact-address" rows="3" class="field resize-none" placeholder="Sokak, Mahalle, İlçe, İl..."></textarea>
+      </div>
+    </div>
+    <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
+      <button onclick="closeAddContactModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">İptal</button>
+      <button id="add-contact-save-btn" onclick="saveNewContact()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-sm font-semibold"><i class="fas fa-user-plus text-xs mr-1.5"></i>Ekle</button>
+    </div>
+  </div>
+</div>
+
 <!-- Message Modal -->
 <div id="message-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
   <div class="modal-backdrop absolute inset-0" onclick="closeMessageModal()"></div>
   <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-      <div><h2 class="text-lg font-bold text-gray-900">Send Message</h2><div class="text-xs text-gray-400 mt-0.5" id="msg-recipient-label">—</div></div>
+      <div><h2 class="text-lg font-bold text-gray-900">Mesaj Gonder</h2><div class="text-xs text-gray-400 mt-0.5" id="msg-recipient-label">—</div></div>
       <button onclick="closeMessageModal()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-times"></i></button>
     </div>
-    <div class="p-6"><textarea id="message-content" rows="5" placeholder="Write your message here…" class="field resize-none"></textarea></div>
+    <div class="p-6"><textarea id="message-content" rows="5" placeholder="Mesajinizi buraya yazin..." class="field resize-none"></textarea></div>
     <div class="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
       <button onclick="closeMessageModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">Iptal</button>
-      <button onclick="sendPrivateMessage()" class="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl text-sm font-semibold"><i class="fas fa-paper-plane text-xs"></i> Send</button>
+      <button onclick="sendPrivateMessage()" class="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl text-sm font-semibold"><i class="fas fa-paper-plane text-xs"></i> Gonder</button>
     </div>
   </div>
 </div>
@@ -1876,20 +2308,20 @@
   <div class="modal-backdrop absolute inset-0" onclick="closeRevisionModal()"></div>
   <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden" style="max-height:80vh;display:flex;flex-direction:column;">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-      <h2 class="text-lg font-bold text-gray-900">Revision History — <span id="revision-template-name" class="text-indigo-600"></span></h2>
+      <h2 class="text-lg font-bold text-gray-900">Revizyon Gecmisi — <span id="revision-template-name" class="text-indigo-600"></span></h2>
       <button onclick="closeRevisionModal()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-times"></i></button>
     </div>
     <div class="overflow-y-auto flex-grow">
       <table class="w-full text-left"><thead><tr class="border-b border-gray-100 bg-gray-50">
         <th class="px-5 py-3 text-xs font-semibold text-gray-500">Rev</th>
-        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Saved By</th>
-        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Date</th>
-        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Preview</th>
+        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Kaydeden</th>
+        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Tarih</th>
+        <th class="px-5 py-3 text-xs font-semibold text-gray-500">Onizleme</th>
         <th class="px-5 py-3 text-xs font-semibold text-gray-500"></th>
       </tr></thead><tbody id="revision-list-body"></tbody></table>
     </div>
     <div class="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
-      <button onclick="closeRevisionModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">Close</button>
+      <button onclick="closeRevisionModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">Kapat</button>
     </div>
   </div>
 </div>
@@ -1899,19 +2331,19 @@
   <div class="modal-backdrop absolute inset-0" onclick="closeTemplatePreviewModal()"></div>
   <div class="modal-box relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-      <h2 class="text-lg font-bold text-gray-900">Live Preview</h2>
+      <h2 class="text-lg font-bold text-gray-900">Canli Onizleme</h2>
       <button onclick="closeTemplatePreviewModal()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><i class="fas fa-times"></i></button>
     </div>
     <div class="p-5 space-y-4">
       <div class="grid grid-cols-3 gap-3">
-        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Ad</label><input id="preview-sample-name" type="text" class="field py-1.5 text-sm" placeholder="Alice" oninput="updateTemplatePreview()"></div>
-        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Telefon</label><input id="preview-sample-phone" type="text" class="field py-1.5 text-sm" placeholder="123456789" oninput="updateTemplatePreview()"></div>
-        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Date</label><input id="preview-sample-date" type="text" class="field py-1.5 text-sm" placeholder="Today" oninput="updateTemplatePreview()"></div>
+        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Ad</label><input id="preview-sample-name" type="text" class="field py-1.5 text-sm" placeholder="Ali" oninput="updateTemplatePreview()"></div>
+        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Telefon</label><input id="preview-sample-phone" type="text" class="field py-1.5 text-sm" placeholder="905551234567" oninput="updateTemplatePreview()"></div>
+        <div><label class="text-xs font-semibold text-gray-500 block mb-1">Tarih</label><input id="preview-sample-date" type="text" class="field py-1.5 text-sm" placeholder="Bugun" oninput="updateTemplatePreview()"></div>
       </div>
-      <div><div class="text-xs font-semibold text-gray-500 mb-2">Rendered output</div><div class="wa-bg"><div class="wa-bubble whitespace-pre-wrap" id="template-preview-output">…</div></div></div>
+      <div><div class="text-xs font-semibold text-gray-500 mb-2">Islenmis cikti</div><div class="wa-bg"><div class="wa-bubble whitespace-pre-wrap" id="template-preview-output">…</div></div></div>
     </div>
     <div class="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
-      <button onclick="closeTemplatePreviewModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">Close</button>
+      <button onclick="closeTemplatePreviewModal()" class="text-sm text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-white font-medium">Kapat</button>
     </div>
   </div>
 </div>
@@ -1928,7 +2360,7 @@
       <div>
         <label class="text-xs font-semibold text-gray-500 block mb-1">Alici Telefonu *</label>
         <div class="flex gap-2">
-          <input id="sched-phone" class="field flex-grow" placeholder="e.g. 22890123456">
+          <input id="sched-phone" class="field flex-grow" placeholder="Orn: 905551234567">
           <button type="button" onclick="openScheduledContactPicker()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-xl font-semibold flex-shrink-0"><i class="fas fa-address-book"></i></button>
         </div>
         <div id="sched-contact-name" class="text-xs text-green-600 mt-1 hidden"></div>
@@ -1943,25 +2375,82 @@
   </div>
 </div>
 
+<script>
+  // Fallback tab routing: keeps sidebar/page transitions usable even if later scripts fail.
+  document.addEventListener('DOMContentLoaded', function () {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var tab = (params.get('tab') || '').trim();
+      if (!tab) return;
+
+      var sectionMap = {
+        dashboard: 'dashboard-section',
+        contacts: 'contacts-section',
+        analytics: 'analytics-section',
+        chats: 'chats-section',
+        scoring: 'scoring-section',
+        survey: 'survey-section',
+        groups: 'groups-section',
+        campaigns: 'campaigns-section',
+        templates: 'templates-section',
+        'scheduled-messages': 'scheduled-messages-section',
+        widget: 'widget-section',
+        flows: 'flows-section',
+        bot: 'bot-section',
+        commands: 'commands-section',
+        users: 'users-section',
+        tenants: 'tenants-section',
+        incidents: 'incidents-section',
+        audit: 'audit-section',
+        integrations: 'integrations-section',
+        settings: 'settings-section'
+      };
+
+      var sectionId = sectionMap[tab];
+      if (!sectionId) return;
+
+      document.querySelectorAll('.nav-item').forEach(function (el) {
+        el.classList.remove('active');
+      });
+      var nav = document.getElementById(tab + '-tab');
+      if (nav) nav.classList.add('active');
+
+      document.querySelectorAll('.section-content').forEach(function (el) {
+        el.classList.add('hidden');
+        el.style.removeProperty('display');
+      });
+      var section = document.getElementById(sectionId);
+      if (section) {
+        section.classList.remove('hidden');
+        if (sectionId === 'chats-section') section.style.display = 'flex';
+      }
+    } catch (_e) {
+      // Intentionally swallow fallback errors to avoid blocking page render.
+    }
+  });
+</script>
+
 <!-- Admin modules — load order matters: state first, then feature modules, then bootstrapper -->
-<script src="/public/js/admin/state.js"></script>
+<script src="/public/js/admin/state.js?v=5"></script>
 <script src="/public/js/admin/utils.js"></script>
 <script src="/public/js/admin/dashboard.js"></script>
-<script src="/public/js/admin/contacts.js"></script>
+<script src="/public/js/admin/contacts.js?v=3"></script>
 <script src="/public/js/admin/campaigns.js"></script>
 <script src="/public/js/admin/templates.js"></script>
 <script src="/public/js/admin/chats.js"></script>
-<script src="/public/js/admin/bot-logs.js"></script>
-<script src="/public/js/admin/system.js"></script>
+<script src="/public/js/admin/bot-logs.js?v=6"></script>
+<script src="/public/js/admin/system.js?v=2"></script>
+<script src="/public/js/admin/tenants.js?v=7"></script>
 <script src="/public/js/admin/incidents.js"></script>
 <script src="/public/js/admin/scoring.js"></script>
+<script src="/public/js/admin/survey.js"></script>
 <script src="/public/js/admin/scheduled.js?v=3"></script>
 <script src="/public/js/admin/integrations.js"></script>
 <script src="/public/js/admin/groups.js?v=2"></script>
 <script src="/public/js/admin/widget.js"></script>
 <script src="/public/js/admin/flows.js?v=2"></script>
 <script src="/public/js/admin/maintenance.js"></script>
-<script src="/public/js/admin.js"></script>
+<script src="/public/js/admin.js?v=4"></script>
 <script>
   function toggleDark() {
     const isDark = document.documentElement.classList.toggle('dark');

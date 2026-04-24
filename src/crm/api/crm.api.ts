@@ -4,9 +4,10 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import axios from 'axios';
 import { BotManager } from '../../bot.manager';
 import logger from '../../configs/logger.config';
-import { authenticate, authorizeAdmin, authorizePermission } from '../middlewares/auth.middleware';
+import { authenticate, authorizeAdmin, authorizePermission, authorizeSession, buildSessionFilter } from '../middlewares/auth.middleware';
 import { CampaignModel } from '../models/campaign.model';
 import { ContactModel } from '../models/contact.model';
 import { AuthService, normalizeUserRole } from '../utils/auth.util';
@@ -27,11 +28,14 @@ import { messageEmitter } from '../../utils/events/message-emitter.util';
 import { IntegrationModel, INTEGRATION_EVENTS } from '../models/integration.model';
 import { AutoReplyModel } from '../models/auto-reply.model';
 import { IncidentModel } from '../models/incident.model';
+import { SurveyResponseModel } from '../models/survey-response.model';
 import { fireEvent } from '../../utils/events/fire-event.util';
 import { encryptValue, decryptValue } from '../../utils/system/crypto.util';
 import { WidgetSettingsModel } from '../models/widget-settings.model';
 import { FlowModel } from '../models/flow.model';
 import { FlowSessionModel } from '../models/flow-session.model';
+import { TenantSessionModel } from '../models/tenant-session.model';
+import { TenantModel } from '../models/tenant.model';
 import { geminiCompletion } from '../../utils/ai/gemini.util';
 import { claudeCompletion } from '../../utils/ai/claude.util';
 import { chatGptCompletion } from '../../utils/ai/chat-gpt.util';
@@ -102,6 +106,34 @@ const incidentStatusMediaUpload = multer({
         } catch (error) {
             logger.error('Failed to update restrictionsRemoved:', error);
             res.status(500).json({ error: 'Failed to update restrictionsRemoved' });
+        }
+    });
+
+    // Mask Phone Numbers Toggle
+    router.post('/settings/mask-phone-numbers', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { maskPhoneNumbers: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.maskPhoneNumbers', 'settings', undefined, { enabled });
+            res.json({ success: true, maskPhoneNumbers: settings.maskPhoneNumbers });
+        } catch (error) {
+            logger.error('Failed to update maskPhoneNumbers:', error);
+            res.status(500).json({ error: 'Failed to update maskPhoneNumbers' });
+        }
+    });
+
+    // Mask Contact Names Toggle
+    router.post('/settings/mask-contact-names', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled } = req.body;
+            const update = { maskContactNames: !!enabled };
+            const settings = await SettingsModel.findOneAndUpdate({}, update, { upsert: true, new: true });
+            await addAuditLog(req.user.userId, req.user.username || '', 'settings.maskContactNames', 'settings', undefined, { enabled });
+            res.json({ success: true, maskContactNames: settings.maskContactNames });
+        } catch (error) {
+            logger.error('Failed to update maskContactNames:', error);
+            res.status(500).json({ error: 'Failed to update maskContactNames' });
         }
     });
 
@@ -193,10 +225,6 @@ async function buildConversationResolutionMap(rawPhones: string[], botManager: B
 function pickConversationContact(contacts: any[], canonicalPhone: string): any | null {
     const match = (contacts || []).find((contact) => normalizeConversationPhone(contact.phoneNumber) === canonicalPhone);
     return match || null;
-}
-
-function getBotOwnConversationPhone(botManager: BotManager): string {
-    return normalizeConversationPhone(String((botManager.client as any)?.info?.wid?._serialized || (botManager.client as any)?.info?.wid?.user || ''));
 }
 
 function incidentStatusLabel(status: string): string {
@@ -379,9 +407,26 @@ export default function (botManager: BotManager) {
             const skip = (Number(page) - 1) * Number(limit);
 
             const query: any = {};
-            if (req.query.showBlocked !== 'true') query.blocked = { $ne: true };
-            if (req.query.showArchived === 'true') query.archived = true;
-            else query.archived = { $ne: true };
+            const viewModeRaw = String(req.query.viewMode || '').trim().toLowerCase();
+            const showBlocked = String(req.query.showBlocked || '').toLowerCase() === 'true';
+            const showArchived = String(req.query.showArchived || '').toLowerCase() === 'true';
+
+            // Backward-compatible filter behavior:
+            // - viewMode=all      => all non-blocked contacts (archived included)
+            // - viewMode=archived => archived & non-blocked contacts
+            // - viewMode=blocked  => blocked contacts
+            // Legacy query params (showBlocked/showArchived) continue to work.
+            if (viewModeRaw === 'blocked' || showBlocked) {
+                query.blocked = true;
+                if (viewModeRaw === 'archived' || showArchived) {
+                    query.archived = true;
+                }
+            } else if (viewModeRaw === 'archived' || showArchived) {
+                query.blocked = { $ne: true };
+                query.archived = true;
+            } else {
+                query.blocked = { $ne: true };
+            }
 
             if (search) {
                 query.$or = [
@@ -543,6 +588,81 @@ export default function (botManager: BotManager) {
         } catch (error) {
             logger.error('Failed to toggle archive:', error);
             res.status(500).json({ error: 'Failed to toggle archive' });
+        }
+    });
+
+    router.put('/contacts/:id', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { name, lastName, address } = req.body;
+            const allowedUpdate: Record<string, any> = {};
+            if (typeof name     === 'string') allowedUpdate.name     = name.trim().slice(0, 120);
+            if (typeof lastName === 'string') allowedUpdate.lastName = lastName.trim().slice(0, 120);
+            if (typeof address  === 'string') allowedUpdate.address  = address.trim().slice(0, 500);
+            const contact = await ContactModel.findByIdAndUpdate(req.params.id, allowedUpdate, { new: true });
+            if (!contact) return res.status(404).json({ error: 'Contact not found' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'contacts.update', 'contact', req.params.id, allowedUpdate);
+            res.json(contact);
+        } catch (error) {
+            logger.error('Failed to update contact:', error);
+            res.status(500).json({ error: 'Failed to update contact' });
+        }
+    });
+
+    // Manuel kişi ekleme
+    router.post('/contacts', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { phoneNumber, name, lastName, address } = req.body;
+            if (!phoneNumber || typeof phoneNumber !== 'string') {
+                return res.status(400).json({ error: 'Telefon numarası zorunludur' });
+            }
+            const phone = phoneNumber.trim().replace(/\s+/g, '');
+            if (!/^\d{10,15}$/.test(phone)) {
+                return res.status(400).json({ error: 'Geçersiz telefon numarası formatı (10-15 haneli)' });
+            }
+            const existing = await ContactModel.findOne({ phoneNumber: phone });
+            if (existing) return res.status(409).json({ error: 'Bu telefon numarası zaten kayıtlı' });
+            const contact = await ContactModel.create({
+                phoneNumber: phone,
+                name: typeof name === 'string' ? name.trim().slice(0, 120) : undefined,
+                lastName: typeof lastName === 'string' ? lastName.trim().slice(0, 120) : undefined,
+                address: typeof address === 'string' ? address.trim().slice(0, 500) : undefined,
+                lastInteraction: new Date(),
+                interactionsCount: 0,
+            });
+            await addAuditLog(req.user.userId, req.user.username || '', 'contacts.create', 'contact', String(contact._id), { phoneNumber: phone, name });
+            res.status(201).json(contact);
+        } catch (error) {
+            logger.error('Failed to create contact:', error);
+            res.status(500).json({ error: 'Failed to create contact' });
+        }
+    });
+
+    // Survey endpoints
+    router.get('/surveys', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const page  = Math.max(1, parseInt(String(req.query.page || '1')));
+            const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '20'))));
+            const customerPhone = req.query.customerPhone ? String(req.query.customerPhone).trim() : null;
+            const incidentId    = req.query.incidentId    ? String(req.query.incidentId).trim()    : null;
+            const filter: any = {};
+            if (customerPhone) filter.customerPhone = customerPhone;
+            if (incidentId)    filter.incidentId    = incidentId;
+            const total   = await SurveyResponseModel.countDocuments(filter);
+            const surveys = await SurveyResponseModel.find(filter)
+                .sort({ sentAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean();
+            const stats = {
+                total:     await SurveyResponseModel.countDocuments(),
+                completed: await SurveyResponseModel.countDocuments({ status: 'completed' }),
+                solutionOk:  await SurveyResponseModel.countDocuments({ status: 'completed', solutionSatisfied: true }),
+                techOk:      await SurveyResponseModel.countDocuments({ status: 'completed', techSatisfied: true })
+            };
+            res.json({ data: surveys, meta: { total, page, limit, pages: Math.ceil(total / limit) }, stats });
+        } catch (error) {
+            logger.error('Failed to fetch surveys:', error);
+            res.status(500).json({ error: 'Failed to fetch surveys' });
         }
     });
 
@@ -913,10 +1033,52 @@ export default function (botManager: BotManager) {
 
             const hasRuntimeKey = (key: string) => !!(process.env[key] || apiKeysMap.get(key));
 
+            const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+            const ollamaPreferredModel = process.env.OLLAMA_MODEL || 'mistral';
+            let ollamaReachable = false;
+            let ollamaModelAvailable = false;
+            try {
+                const { data } = await axios.get(`${ollamaBaseUrl}/api/tags`, { timeout: 2500 });
+                ollamaReachable = true;
+                const modelNames = Array.isArray(data?.models)
+                    ? data.models.map((m: any) => String(m?.name || m?.model || '')).filter(Boolean)
+                    : [];
+                ollamaModelAvailable = modelNames.includes(ollamaPreferredModel) || modelNames.length > 0;
+            } catch {
+                ollamaReachable = false;
+                ollamaModelAvailable = false;
+            }
+
+            const ollamaAssistantEnabled = !!(settings as any)?.ollamaAssistant?.enabled;
+            const aiProviderStatus = {
+                gemini: {
+                    configured: hasRuntimeKey('GEMINI_API_KEY'),
+                    active: (settings?.defaultAudioAiCommand || 'chat') === 'chat' && hasRuntimeKey('GEMINI_API_KEY'),
+                },
+                openai: {
+                    configured: hasRuntimeKey('CHAT_GPT_API_KEY'),
+                    active: (settings?.defaultAudioAiCommand || 'chat') === 'gpt' && hasRuntimeKey('CHAT_GPT_API_KEY'),
+                },
+                claude: {
+                    configured: hasRuntimeKey('ANTHROPIC_API_KEY'),
+                    active: (settings?.defaultAudioAiCommand || 'chat') === 'claude' && hasRuntimeKey('ANTHROPIC_API_KEY'),
+                },
+                ollama: {
+                    configured: true,
+                    active: ollamaAssistantEnabled && ollamaReachable,
+                    enabled: ollamaAssistantEnabled,
+                    reachable: ollamaReachable,
+                    modelAvailable: ollamaModelAvailable,
+                    baseUrl: ollamaBaseUrl,
+                    preferredModel: ollamaPreferredModel,
+                }
+            };
+
             res.json({
                 ...settings.toObject(),
                 apiKeysMasked: maskedKeys,
                 apiKeysDisplay: displayKeys,
+                aiProviderStatus,
                 env: {
                     GEMINI_API_KEY: hasRuntimeKey('GEMINI_API_KEY'),
                     OPENWEATHERMAP_API_KEY: hasRuntimeKey('OPENWEATHERMAP_API_KEY'),
@@ -940,7 +1102,7 @@ export default function (botManager: BotManager) {
 
     router.put('/settings', authenticate, authorizeAdmin, async (req, res) => {
         try {
-            const { maxFileSizeMb, autoDownloadEnabled, defaultAudioAiCommand, apiKeys, incidentRouting, notificationTemplates, botMessageTemplates, botIdentity } = req.body;
+            const { maxFileSizeMb, autoDownloadEnabled, defaultAudioAiCommand, ollamaAssistant, apiKeys, incidentRouting, notificationTemplates, botMessageTemplates, botIdentity } = req.body;
             const update: any = {};
             if (maxFileSizeMb !== undefined) {
                 const mb = Number(maxFileSizeMb);
@@ -951,6 +1113,21 @@ export default function (botManager: BotManager) {
             }
             if (autoDownloadEnabled !== undefined) update.autoDownloadEnabled = autoDownloadEnabled;
             if (defaultAudioAiCommand !== undefined) update.defaultAudioAiCommand = defaultAudioAiCommand;
+            if (ollamaAssistant && typeof ollamaAssistant === 'object') {
+                const oa = ollamaAssistant as any;
+                if (oa.enabled !== undefined) {
+                    update['ollamaAssistant.enabled'] = !!oa.enabled;
+                }
+                if (oa.outsideFlowShortReplyEnabled !== undefined) {
+                    update['ollamaAssistant.outsideFlowShortReplyEnabled'] = !!oa.outsideFlowShortReplyEnabled;
+                }
+                if (oa.maxReplyChars !== undefined) {
+                    const maxReplyChars = Number(oa.maxReplyChars);
+                    update['ollamaAssistant.maxReplyChars'] = Number.isFinite(maxReplyChars)
+                        ? Math.max(80, Math.min(800, Math.round(maxReplyChars)))
+                        : 240;
+                }
+            }
             const sherpaPathKeysSet = new Set([
                 'SHERPA_ONNX_ASR_ENCODER_PATH', 'SHERPA_ONNX_ASR_DECODER_PATH', 'SHERPA_ONNX_ASR_TOKENS_PATH',
                 'SHERPA_ONNX_TTS_MODEL_PATH', 'SHERPA_ONNX_TTS_TOKENS_PATH', 'SHERPA_ONNX_TTS_LEXICON_PATH', 'SHERPA_ONNX_TTS_DATA_DIR',
@@ -1038,6 +1215,24 @@ export default function (botManager: BotManager) {
                 if (tpl.incidentClosureSuccessMessage !== undefined) {
                     update['botMessageTemplates.incidentClosureSuccessMessage'] = String(tpl.incidentClosureSuccessMessage || '').trim();
                 }
+                if (tpl.personalizedMenuMessage !== undefined) {
+                    update['botMessageTemplates.personalizedMenuMessage'] = String(tpl.personalizedMenuMessage || '').trim();
+                }
+                if (tpl.infoRedirectMessage !== undefined) {
+                    update['botMessageTemplates.infoRedirectMessage'] = String(tpl.infoRedirectMessage || '').trim();
+                }
+                if (tpl.unknownQuestionMessage !== undefined) {
+                    update['botMessageTemplates.unknownQuestionMessage'] = String(tpl.unknownQuestionMessage || '').trim();
+                }
+                if (tpl.noEmailFallbackMessage !== undefined) {
+                    update['botMessageTemplates.noEmailFallbackMessage'] = String(tpl.noEmailFallbackMessage || '').trim();
+                }
+                if (tpl.incidentCreatedSuccessMessage !== undefined) {
+                    update['botMessageTemplates.incidentCreatedSuccessMessage'] = String(tpl.incidentCreatedSuccessMessage || '').trim();
+                }
+                if (tpl.incidentCreatedDispatchFailedMessage !== undefined) {
+                    update['botMessageTemplates.incidentCreatedDispatchFailedMessage'] = String(tpl.incidentCreatedDispatchFailedMessage || '').trim();
+                }
                 if (tpl.chatMediaPreviewText !== undefined) {
                     update['botMessageTemplates.chatMediaPreviewText'] = String(tpl.chatMediaPreviewText || '').trim();
                 }
@@ -1060,6 +1255,39 @@ export default function (botManager: BotManager) {
         }
     });
 
+
+    // Survey settings
+    router.get('/settings/survey', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            let settings = await SettingsModel.findOne().lean() as any;
+            if (!settings) settings = await SettingsModel.create({});
+            const sv = (settings as any).survey || {};
+            res.json({
+                enabled:        sv.enabled        ?? false,
+                triggerStatus:  sv.triggerStatus  || 'COZUMLENDI',
+                message:        sv.message        || '',
+                thankYouMessage: sv.thankYouMessage || '',
+            });
+        } catch (err) {
+            logger.error('Anket ayarlari alinamadi:', err);
+            res.status(500).json({ error: 'Anket ayarlari alinamadi' });
+        }
+    });
+
+    router.post('/settings/survey', authenticate, authorizeAdmin, async (req, res) => {
+        try {
+            const { enabled, message, thankYouMessage } = req.body;
+            const update: any = {};
+            if (typeof enabled === 'boolean') update['survey.enabled'] = enabled;
+            if (typeof message === 'string') update['survey.message'] = message.trim().slice(0, 1000);
+            if (typeof thankYouMessage === 'string') update['survey.thankYouMessage'] = thankYouMessage.trim().slice(0, 500);
+            await SettingsModel.findOneAndUpdate({}, { $set: update }, { upsert: true, new: true });
+            res.json({ success: true });
+        } catch (err) {
+            logger.error('Anket ayarlari guncellenemedi:', err);
+            res.status(500).json({ error: 'Anket ayarlari guncellenemedi' });
+        }
+    });
 
     // Maintenance Mode routes
     router.get('/settings/maintenance', authenticate, authorizeAdmin, async (req, res) => {
@@ -1141,9 +1369,13 @@ export default function (botManager: BotManager) {
 
     router.get('/incidents', authenticate, authorizePermission('canViewIncidents'), async (req, res) => {
         try {
-            const { q = '', dateFrom = '', dateTo = '', sortOrder = 'desc' } = req.query as any;
+            const { q = '', dateFrom = '', dateTo = '', sortOrder = 'desc', tenantId = '', sessionKey = '' } = req.query as any;
             const query = String(q || '').trim().toLowerCase();
-            const mongoQuery: any = {};
+            // Start with session-scope filter derived from user's allowedSessions
+            const mongoQuery: any = { ...buildSessionFilter((req as any).user) };
+            // Explicit query-param filters override/narrow the session filter
+            if (tenantId) mongoQuery.tenantId = String(tenantId);
+            if (sessionKey) mongoQuery.sessionKey = String(sessionKey);
             if (query) {
                 mongoQuery.$or = [
                     { incidentId: { $regex: query, $options: 'i' } },
@@ -1457,7 +1689,7 @@ export default function (botManager: BotManager) {
             const note = String(noteRaw || '').trim();
             const uploadedFile = req.file;
 
-            const allowed = ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI'];
+            const allowed = ['ALINDI', 'INCELEMEDE', 'ISLEME_ALINDI', 'COZUMLENDI', 'KAPATILDI', 'IPTAL'];
             const dbQuery: any = { $or: [{ incidentId: id }] };
             if (/^[a-f\d]{24}$/i.test(id)) {
                 dbQuery.$or.push({ _id: id });
@@ -1532,7 +1764,7 @@ export default function (botManager: BotManager) {
             const settings = await SettingsModel.findOne().lean() as any;
             const tpl = settings?.notificationTemplates || {};
 
-            const institutionName = String(tpl.institutionName || 'Coruh EDAS Artvin Il Mudurlugu');
+            const institutionName = String(tpl.institutionName || 'Kurum Bilgi Sistemi');
             const signatureName = String(tpl.signatureName || 'C. Kurtoglu');
             const closingLine = String(tpl.closingLine || 'Bilgilerinize sunariz.');
             const statusWhatsappTemplate = String(
@@ -1662,6 +1894,56 @@ export default function (botManager: BotManager) {
                 source: 'crm'
             }).catch(() => {});
 
+            // Anket gonder (cozum/kapatma adiminda)
+            try {
+                const surveySettings = (settings as any)?.survey;
+                const triggerStatusRaw = String(surveySettings?.triggerStatus || 'COZUMLENDI,KAPATILDI').toUpperCase();
+                const triggerStatuses = Array.from(new Set(
+                    triggerStatusRaw
+                        .split(/[\s,;|]+/)
+                        .map((v) => String(v || '').trim())
+                        .filter(Boolean)
+                ));
+                const shouldTriggerSurvey = triggerStatuses.includes(status)
+                    // Geriye donuk uyumluluk: eski ayarda sadece COZUMLENDI seciliyse de
+                    // kayit KAPATILDI oldugunda anket gonderimine izin ver.
+                    || (status === 'KAPATILDI' && triggerStatuses.includes('COZUMLENDI'))
+                    // Customer closure may be marked as IPTAL by some flows.
+                    || (status === 'IPTAL' && (
+                        triggerStatuses.includes('KAPATILDI') || triggerStatuses.includes('COZUMLENDI')
+                    ));
+
+                if (surveySettings?.enabled && shouldTriggerSurvey && incident.customerPhone && botManager?.client) {
+                    const alreadySent = await SurveyResponseModel.findOne({ incidentId: String(incident.incidentId) });
+                    if (!alreadySent) {
+                        const surveyMsgTemplate = String(surveySettings.message ||
+                            'Sayın {{customerName}},\n\n{{incidentId}} numaralı arıza kaydınızla ilgili kısa bir değerlendirme ricasında bulunuyoruz.\n\n✅ *Probleminiz çözüldü mü?*\n*1️⃣* - Evet, çözüldü\n*2️⃣* - Hayır, çözülmedi\n\nLütfen *1* veya *2* tuşlayınız.');
+                        const surveyMsg = surveyMsgTemplate
+                            .replace(/\{\{customerName\}\}/g, String(incident.customerName || 'Müşteri'))
+                            .replace(/\{\{incidentId\}\}/g, String(incident.incidentId));
+                        const chatId = toWhatsAppChatId(incident.customerPhone);
+                        if (chatId) {
+                            try {
+                                await botManager.client!.sendMessage(chatId, surveyMsg);
+                                await SurveyResponseModel.create({
+                                    incidentId: String(incident.incidentId),
+                                    customerPhone: String(incident.customerPhone),
+                                    customerName: String(incident.customerName || ''),
+                                    status: 'pending',
+                                    step: 1,
+                                    sentAt: new Date()
+                                });
+                                logger.info(`Survey sent to ${incident.customerPhone} for incident ${incident.incidentId}`);
+                            } catch (surveyErr) {
+                                logger.error('Failed to send survey:', surveyErr);
+                            }
+                        }
+                    }
+                }
+            } catch (surveyErr) {
+                logger.error('Survey send error:', surveyErr);
+            }
+
             res.json(serializeIncident(incident.toObject()));
         } catch (error) {
             logger.error('Failed to update incident status:', error);
@@ -1726,7 +2008,7 @@ export default function (botManager: BotManager) {
     router.put('/users/:id', authenticate, authorizeAdmin, async (req, res) => {
         try {
             if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Kendi rolünüzü değiştiremezsiniz' });
-            const { role, permissions, displayName, phone, isActive, routing } = req.body;
+            const { role, permissions, displayName, phone, isActive, routing, allowedSessions } = req.body;
             const update: Record<string, any> = {};
             if (role !== undefined) {
                 update.role = normalizeUserRole(role);
@@ -1736,6 +2018,7 @@ export default function (botManager: BotManager) {
             if (phone !== undefined) update.phone = phone;
             if (isActive !== undefined) update.isActive = isActive;
             if (routing !== undefined) update.routing = routing;
+            if (allowedSessions !== undefined) update.allowedSessions = Array.isArray(allowedSessions) ? allowedSessions : [];
             const user = await UserModel.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
             if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
             await addAuditLog(req.user.userId, req.user.username || '', 'user.update', 'user', req.params.id, update);
@@ -1921,7 +2204,6 @@ export default function (botManager: BotManager) {
             // Get all distinct phone numbers first to build the full conversation list
             const allPhones = await MessageModel.distinct('phoneNumber');
             const resolutionMap = await buildConversationResolutionMap(allPhones, botManager);
-            const botOwnPhone = getBotOwnConversationPhone(botManager);
 
             // Aggregate per conversation: last message + unread count
             const aggResult = await MessageModel.aggregate([
@@ -1947,7 +2229,6 @@ export default function (botManager: BotManager) {
             aggResult.forEach((entry: any) => {
                 const canonicalPhone = resolutionMap.get(entry._id) || normalizeConversationPhone(entry._id);
                 if (!canonicalPhone) return;
-                if (botOwnPhone && canonicalPhone === botOwnPhone) return;
 
                 const existing = conversationMap.get(canonicalPhone);
                 if (!existing || new Date(entry.lastTimestamp || 0).getTime() > new Date(existing.lastTimestamp || 0).getTime()) {
@@ -2007,17 +2288,13 @@ export default function (botManager: BotManager) {
         try {
             const phone = Array.isArray(req.params.phone) ? (req.params.phone[0] || '') : String(req.params.phone || '');
             const canonicalPhone = normalizeConversationPhone(phone);
-            const botOwnPhone = getBotOwnConversationPhone(botManager);
-            if (botOwnPhone && canonicalPhone === botOwnPhone) {
-                return res.json({ messages: [], contact: null });
-            }
             const rawPhones = await MessageModel.distinct('phoneNumber');
             const resolutionMap = await buildConversationResolutionMap(rawPhones, botManager);
             const aliases = rawPhones.filter((rawPhone) => (resolutionMap.get(rawPhone) || normalizeConversationPhone(rawPhone)) === canonicalPhone);
             const messagePhones = Array.from(new Set([canonicalPhone, ...aliases].filter(Boolean)));
 
             const messages = await MessageModel.find({ phoneNumber: { $in: messagePhones } })
-                .sort({ timestamp: 1 })
+                .sort({ timestamp: -1 })
                 .limit(1000)
                 .lean();
             await MessageModel.updateMany(
@@ -2026,8 +2303,9 @@ export default function (botManager: BotManager) {
             );
             const contacts = await ContactModel.find({}).lean();
             const contact = pickConversationContact(contacts, canonicalPhone);
+            const chronologicalMessages = messages.reverse().map((message: any) => ({ ...message, phoneNumber: canonicalPhone }));
             res.json({
-                messages: messages.map((message: any) => ({ ...message, phoneNumber: canonicalPhone })),
+                messages: chronologicalMessages,
                 contact
             });
         } catch (error) {
@@ -2637,13 +2915,11 @@ export default function (botManager: BotManager) {
 
             const resolutionMap = await buildConversationResolutionMap(messages.map((message: any) => message.phoneNumber), botManager);
             const normalizedPhoneSearch = normalizeConversationPhone(phone);
-            const botOwnPhone = getBotOwnConversationPhone(botManager);
 
             const threadMap: Record<string, any[]> = {};
             messages.forEach((message: any) => {
                 const canonicalPhone = resolutionMap.get(message.phoneNumber) || normalizeConversationPhone(message.phoneNumber);
                 if (!canonicalPhone) return;
-                if (botOwnPhone && canonicalPhone === botOwnPhone) return;
                 if (phone && canonicalPhone !== normalizedPhoneSearch && !canonicalPhone.includes(normalizedPhoneSearch)) {
                     return;
                 }
@@ -3294,6 +3570,332 @@ ${transcript}`;
         } catch { res.status(500).json({ error: 'Failed to create test session' }); }
     });
 
+    // ============ TENANT SESSION MANAGEMENT ============
+
+    /**
+     * GET /crm/tenant/sessions - List all sessions for tenant
+     */
+    router.get('/tenant/sessions', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const queryTenantId = String(req.query?.tenantId || '').trim().toLowerCase();
+            const explicitTenantQuery = !!queryTenantId;
+            const tenantId = explicitTenantQuery ? queryTenantId : (req.user?.tenantId || 'default');
+            const dbSessions = await TenantSessionModel.find({ tenantId }).select('sessionKey sessionName status botPhone botPushName uptime createdAt tenantId').lean();
+
+            // Backward-compat: if tenant-specific sessions are empty, include default tenant sessions.
+            // This allows legacy single-bot deployments to stay visible in multi-tenant UI.
+            const legacyFallback = !explicitTenantQuery && tenantId !== 'default' && (!dbSessions || dbSessions.length === 0)
+                ? await TenantSessionModel.find({ tenantId: 'default' }).select('sessionKey sessionName status botPhone botPushName uptime createdAt tenantId').lean()
+                : [];
+            const combinedDbSessions = [...(dbSessions || []), ...(legacyFallback || [])];
+
+            // Merge with live in-memory sessions so UI always shows connected bots
+            const liveSessions = botManager.listSessions();
+            const merged = [...combinedDbSessions];
+            for (const live of liveSessions) {
+                const tenantMatches = live.tenantId === tenantId;
+                const legacyMatches = !explicitTenantQuery && tenantId !== 'default' && live.tenantId === 'default';
+                if (!tenantMatches && !legacyMatches) continue;
+                const exists = merged.find(s => s.sessionKey === live.sessionKey && (s as any).tenantId === live.tenantId);
+                if (!exists) {
+                    const liveStatus = botManager.getSessionStatus(live.tenantId, live.sessionKey);
+                    merged.push({
+                        _id: `${live.tenantId}:${live.sessionKey}`,
+                        tenantId: live.tenantId,
+                        sessionKey: live.sessionKey,
+                        sessionName: live.sessionKey === 'primary' ? 'Ana Oturum' : live.sessionKey,
+                        status: liveStatus?.status === 'connected' ? 'connected' : liveStatus?.status === 'scanning' ? 'pending_qr' : 'disconnected',
+                        botPhone: liveStatus?.phone,
+                        botPushName: liveStatus?.pushName,
+                        uptime: liveStatus?.uptime,
+                        lastStatusUpdate: new Date(),
+                        createdAt: new Date(),
+                    } as any);
+                }
+            }
+            res.json(merged);
+        } catch (error) {
+            logger.error('Failed to list sessions:', error);
+            res.status(500).json({ error: 'Failed to list sessions' });
+        }
+    });
+
+    /**
+     * POST /crm/tenant/session - Create new session (MVP: only primary supported)
+     */
+    router.post('/tenant/session', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const bodyTenantId = String(req.body?.tenantId || '').trim().toLowerCase();
+            const tenantId = bodyTenantId || req.user?.tenantId || 'default';
+            const { sessionKey = 'primary', sessionName } = req.body;
+
+            if (tenantId !== 'default') {
+                const tenantExists = await TenantModel.findOne({ code: tenantId }).lean();
+                if (!tenantExists) return res.status(404).json({ error: `Tenant bulunamadi: ${tenantId}` });
+            }
+
+            if (!sessionKey || !/^[a-z0-9_-]+$/i.test(String(sessionKey))) {
+                return res.status(400).json({ error: 'sessionKey sadece harf, rakam, - ve _ içerebilir' });
+            }
+
+            // Check if session already exists
+            const existing = await TenantSessionModel.findOne({ tenantId, sessionKey }).lean();
+            if (existing) {
+                return res.status(400).json({ error: 'Session already exists' });
+            }
+
+            // Create session record
+            const sessionDoc = await TenantSessionModel.create({
+                tenantId,
+                sessionKey,
+                sessionName: sessionName || `${sessionKey} session`,
+                status: 'pending_qr',
+                lastStatusUpdate: new Date()
+            });
+
+            // Initialize in BotManager
+            botManager.createSession(tenantId, sessionKey);
+
+            res.json({ success: true, session: sessionDoc, message: 'Session created. Waiting for QR scan.' });
+        } catch (error) {
+            logger.error('Failed to create session:', error);
+            res.status(500).json({ error: 'Failed to create session' });
+        }
+    });
+
+    /**
+     * GET /crm/tenant/session/:sessionKey - Get session status
+     */
+    router.get('/tenant/session/:sessionKey', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const queryTenantId = String(req.query?.tenantId || '').trim().toLowerCase();
+            const tenantId = queryTenantId || req.user?.tenantId || 'default';
+            const { sessionKey } = req.params;
+
+            let effectiveTenantId = tenantId;
+            let session = await TenantSessionModel.findOne({ tenantId, sessionKey }).lean();
+            if (!session && tenantId !== 'default') {
+                session = await TenantSessionModel.findOne({ tenantId: 'default', sessionKey }).lean();
+                if (session) effectiveTenantId = 'default';
+            }
+            if (!session) {
+                return res.status(404).json({ error: 'Session not found' });
+            }
+
+            // Get live status from BotManager
+            const liveStatus = botManager.getSessionStatus(effectiveTenantId, sessionKey);
+
+            res.json({
+                ...session,
+                liveStatus
+            });
+        } catch (error) {
+            logger.error('Failed to get session status:', error);
+            res.status(500).json({ error: 'Failed to get session status' });
+        }
+    });
+
+    /**
+     * POST /crm/tenant/session/:sessionKey/reconnect - Reconnect session
+     */
+    router.post('/tenant/session/:sessionKey/reconnect', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const queryTenantId = String(req.query?.tenantId || '').trim().toLowerCase();
+            const tenantId = queryTenantId || req.user?.tenantId || 'default';
+            const { sessionKey } = req.params;
+
+            let effectiveTenantId = tenantId;
+            let session = await TenantSessionModel.findOne({ tenantId, sessionKey }).lean();
+            if (!session && tenantId !== 'default') {
+                session = await TenantSessionModel.findOne({ tenantId: 'default', sessionKey }).lean();
+                if (session) effectiveTenantId = 'default';
+            }
+            if (!session) {
+                return res.status(404).json({ error: 'Session not found' });
+            }
+
+            // For primary session use legacy reconnect; for others destroy+recreate
+            if (effectiveTenantId === 'default' && sessionKey === 'primary') {
+                await botManager.reconnect();
+            } else {
+                await botManager.destroySession(effectiveTenantId, sessionKey);
+                botManager.createSession(effectiveTenantId, sessionKey);
+            }
+
+            // Update session status to pending_qr
+            await TenantSessionModel.updateOne(
+                { tenantId: effectiveTenantId, sessionKey },
+                { status: 'pending_qr', lastStatusUpdate: new Date(), qrCode: null }
+            );
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'session.reconnect', 'session', `${effectiveTenantId}:${sessionKey}`, { tenantId: effectiveTenantId, sessionKey });
+            res.json({ success: true, message: 'Reconnect triggered. Waiting for new QR code.' });
+        } catch (error) {
+            logger.error('Failed to reconnect session:', error);
+            res.status(500).json({ error: 'Failed to reconnect session' });
+        }
+    });
+
+    /**
+     * DELETE /crm/tenant/session/:sessionKey - Stop session
+     */
+    router.delete('/tenant/session/:sessionKey', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const queryTenantId = String(req.query?.tenantId || '').trim().toLowerCase();
+            const tenantId = queryTenantId || req.user?.tenantId || 'default';
+            const { sessionKey } = req.params;
+
+            let effectiveTenantId = tenantId;
+            let session = await TenantSessionModel.findOne({ tenantId, sessionKey }).lean();
+            if (!session && tenantId !== 'default') {
+                session = await TenantSessionModel.findOne({ tenantId: 'default', sessionKey }).lean();
+                if (session) effectiveTenantId = 'default';
+            }
+            if (!session) {
+                return res.status(404).json({ error: 'Session not found' });
+            }
+
+            // Destroy in BotManager
+            await botManager.destroySession(effectiveTenantId, sessionKey);
+
+            // Update in DB
+            await TenantSessionModel.updateOne(
+                { tenantId: effectiveTenantId, sessionKey },
+                { status: 'disconnected', lastStatusUpdate: new Date() }
+            );
+
+            await addAuditLog(req.user.userId, req.user.username || '', 'session.stop', 'session', `${effectiveTenantId}:${sessionKey}`, { tenantId: effectiveTenantId, sessionKey });
+            res.json({ success: true, message: 'Session stopped' });
+        } catch (error) {
+            logger.error('Failed to stop session:', error);
+            res.status(500).json({ error: 'Failed to stop session' });
+        }
+    });
+
+    /**
+     * GET /crm/tenants - List all tenants (admin only)
+     */
+    router.get('/tenants', authenticate, authorizeAdmin, async (_req: any, res) => {
+        try {
+            const tenants = await TenantModel.find().select('code name description primaryPhone status tier settings createdAt').lean();
+            res.json(tenants || []);
+        } catch (error) {
+            logger.error('Failed to list tenants:', error);
+            res.status(500).json({ error: 'Failed to list tenants' });
+        }
+    });
+
+    /**
+     * POST /crm/tenants - Create a new tenant
+     */
+    router.post('/tenants', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const { code, name, description, primaryPhone, status = 'active', tier = 'free', settings } = req.body;
+            if (!code || !name) return res.status(400).json({ error: 'code ve name zorunludur' });
+            const existing = await TenantModel.findOne({ code: String(code).toLowerCase() });
+            if (existing) return res.status(409).json({ error: `'${code}' kodu zaten kullanımda` });
+            const tenant = await TenantModel.create({ code: String(code).toLowerCase(), name, description, primaryPhone, status, tier, settings });
+            await addAuditLog(req.user.userId, req.user.username || '', 'tenant.create', 'tenant', String(tenant._id), { code, name });
+            res.status(201).json(tenant);
+        } catch (error) {
+            logger.error('Failed to create tenant:', error);
+            res.status(400).json({ error: error.message || 'Tenant oluşturulamadı' });
+        }
+    });
+
+    /**
+     * PUT /crm/tenants/:id - Update tenant
+     */
+    router.put('/tenants/:id', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const { name, description, primaryPhone, status, tier, settings } = req.body;
+            const update: Record<string, any> = {};
+            if (name !== undefined) update.name = name;
+            if (description !== undefined) update.description = description;
+            if (primaryPhone !== undefined) update.primaryPhone = primaryPhone;
+            if (status !== undefined) update.status = status;
+            if (tier !== undefined) update.tier = tier;
+            if (settings !== undefined) update.settings = settings;
+            const tenant = await TenantModel.findByIdAndUpdate(req.params.id, update, { new: true });
+            if (!tenant) return res.status(404).json({ error: 'Tenant bulunamadı' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'tenant.update', 'tenant', req.params.id, update);
+            res.json(tenant);
+        } catch (error) {
+            logger.error('Failed to update tenant:', error);
+            res.status(400).json({ error: error.message || 'Tenant güncellenemedi' });
+        }
+    });
+
+    /**
+     * DELETE /crm/tenants/:id - Deactivate (soft-delete) tenant
+     */
+    router.delete('/tenants/:id', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const tenant = await TenantModel.findByIdAndUpdate(req.params.id, { status: 'inactive' }, { new: true });
+            if (!tenant) return res.status(404).json({ error: 'Tenant bulunamadı' });
+            await addAuditLog(req.user.userId, req.user.username || '', 'tenant.deactivate', 'tenant', req.params.id, { code: tenant.code });
+            res.json({ success: true, message: `Tenant '${tenant.code}' deaktif edildi` });
+        } catch (error) {
+            logger.error('Failed to deactivate tenant:', error);
+            res.status(500).json({ error: 'Tenant deaktif edilemedi' });
+        }
+    });
+
+    // Session metrics endpoint: incident + message counts for a specific tenant session
+    router.get('/tenant/session/:sessionKey/metrics', authenticate, authorizeAdmin, async (req: any, res) => {
+        try {
+            const { sessionKey } = req.params;
+            const queryTenantId = String(req.query?.tenantId || '').trim().toLowerCase();
+            const tenantId = queryTenantId || req.user?.tenantId || 'default';
+
+            const [incidentCount, messageCount] = await Promise.all([
+                IncidentModel.countDocuments({ tenantId, sessionKey }),
+                MessageModel.countDocuments({ tenantId: { $exists: true } })
+                    .catch(() => IncidentModel.countDocuments({ tenantId }))
+            ]);
+
+            const recentIncidents = await IncidentModel.find({ tenantId, sessionKey })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .select('incidentId customerName status createdAt')
+                .lean();
+
+            res.json({
+                tenantId,
+                sessionKey,
+                stats: {
+                    incidentCount,
+                    messageCount,
+                },
+                recentIncidents
+            });
+        } catch (error) {
+            logger.error('Failed to get session metrics:', error);
+            res.status(500).json({ error: 'Failed to get session metrics' });
+        }
+    });
+
+    // Sessions stats overview for admin
+    router.get('/sessions/overview', authenticate, authorizeAdmin, async (_req: any, res) => {
+        try {
+            const liveSessions = botManager.listSessions();
+
+            const enriched = await Promise.all(liveSessions.map(async (s) => {
+                const [incidentCount] = await Promise.all([
+                    IncidentModel.countDocuments({ tenantId: s.tenantId, sessionKey: s.sessionKey })
+                ]);
+                return {
+                    ...s,
+                    incidentCount,
+                };
+            }));
+
+            res.json({ sessions: enriched, total: enriched.length });
+        } catch (error) {
+            logger.error('Failed to get sessions overview:', error);
+            res.status(500).json({ error: 'Failed to get sessions overview' });
+        }
+    });
 
     return router;
 }

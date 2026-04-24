@@ -8,6 +8,19 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import bodyParser from 'body-parser';
+import net from 'net';
+
+/** Verilen port meşgulse bir sonrakini dener — tamamen offline, async. */
+function findFreePort(startPort: number): Promise<number> {
+    return new Promise((resolve) => {
+        const server = net.createServer();
+        server.listen(startPort, '0.0.0.0', () => {
+            const addr = server.address() as net.AddressInfo;
+            server.close(() => resolve(addr.port));
+        });
+        server.on('error', () => findFreePort(startPort + 1).then(resolve));
+    });
+}
 import logger from "./configs/logger.config";
 import EnvConfig from "./configs/env.config";
 import apiRoutes from "./api/index.api";
@@ -24,6 +37,10 @@ import { enforceLicenseOrThrow } from "./utils/system/license.util";
 
 // Global error handlers to prevent crashes (Log but don't exit - let the app continue running)
 process.on('uncaughtException', (error: Error) => {
+    // EPIPE = broken pipe (WhatsApp Chrome connection yazma hatası) - ölümcül değil, yoksay
+    if ((error as any).code === 'EPIPE') {
+        return;
+    }
     logger.error('Uncaught Exception:', error);
     logger.error('Stack:', error.stack);
 });
@@ -62,7 +79,6 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const app = express();
-const port = EnvConfig.PORT || 3000;
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -150,11 +166,19 @@ async function bootstrap() {
     await initializeSherpaModels();
     initCrons(botManager);
 
-    app.listen(port, () => {
+    const preferredPort = parseInt(String(EnvConfig.PORT || '3500'), 10);
+    const port = await findFreePort(preferredPort);
+    if (port !== preferredPort) {
+        logger.warn(`PORT ${preferredPort} mesgul veya kullanilamaz, yerine ${port} kullaniliyor.`);
+        process.env.PORT = String(port);
+    }
+
+    app.listen(port, '0.0.0.0', () => {
         logger.info(readAsciiArt());
         logger.info(`Imza: ${AppConfig.instance.getBotAuthor()}`);
         logger.info(`Server running on port ${port}`);
         logger.info(`Access: http://localhost:${port}/`);
+        logger.info(`Admin Panel : http://localhost:${port}/admin`);
         const shouldAutoStartBot = (EnvConfig.BOT_AUTO_START ?? 'true').toLowerCase() !== 'false';
         if (shouldAutoStartBot) {
             botManager.initialize();

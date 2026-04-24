@@ -1,10 +1,54 @@
 # WhatsYpzck — Geliştirme Geçmişi
 
-_Son güncelleme: 2026-04-14_
+_Son güncelleme: 2026-04-16_
 
 ---
 
-## 2026-04-14 — Guvenli Kayit ve Yedekleme
+## 2026-04-16 — Multi-Step Anket Sistemi + Manuel Kişi Ekleme
+
+### Yapılanlar
+
+#### Anket Sistemi (Multi-Step)
+- **`src/crm/models/survey-response.model.ts`** tamamen yenilendi:
+  - Eski: tek adımlı 1-5 arası puan
+  - Yeni: `step`, `solutionSatisfied`, `techSatisfied`, `freeComment`, `status: 'pending'|'completed'|'expired'`
+- **`src/bot.manager.ts`** — anket yanıt mantığı yeniden yazıldı:
+  - `step === 1`: "Probleminiz çözüldü mü? 1=Evet / 2=Hayır" → geçersiz giriş tekrar hatırlatılıyor
+  - `step === 2`: "Teknisyen iletişiminden memnun kaldınız mı? 1=Evet / 2=Hayır"
+  - `step === 3`: Serbest yorum (her metin kabul edilir, "Hayır" ile geçilir) → anket tamamlanır, teşekkür mesajı gönderilir
+- **`src/crm/api/crm.api.ts`** — arıza CÖZÜMLENDI durumuna geçince yeni `status: 'pending'`, `step: 1` ile anket oluşturuluyor; ilk mesaj artık multi-step başlangıç mesajı
+- **`GET /crm/surveys`** → `customerPhone` ve `incidentId` filtre query parametreleri eklendi
+- İstatistikler: `solutionOk`, `techOk` sayımları eklendi
+
+#### Manuel Kişi Ekleme
+- **`POST /crm/contacts`** endpoint'i eklendi — telefon, ad, soyad, adres ile kişi oluşturma
+- Admin Panel kişiler sayfasına **"Kişi Ekle"** butonu + modal eklendi (`openAddContactModal`, `saveNewContact` fonksiyonları `contacts.js`'e eklendi)
+
+#### API Hata Mesajları
+- **`public/js/admin/state.js`** — `apiFetch` artık hata response body'sinden `error`/`message` alanını okuyor; kullanıcıya gerçek hata mesajı toast ile gösteriliyor
+
+#### Admin Panel — Anketler Sekmesi
+- **`src/views/admin.ejs`** — survey-section güncellendi:
+  - 4 istatistik kartı (Toplam, Tamamlanan, Problem Çözüldü, Teknisyen Memnun)
+  - Filtre alanları: Müşteri Telefonu + Arıza No + Ara/Temizle butonları
+  - Tablo kolonları: Arıza No, Müşteri (isim+telefon), Çözüm ✅/❌, Teknisyen ✅/❌, Yorum, Durum, Tarih
+  - Sayfalama bileşeni (`renderSurveyPagination`)
+- **`public/js/admin/survey.js`** tamamen yenilendi:
+  - `loadSurveys(page)` — filtre parametrelerini okuyarak sayfalı veri çekiyor
+  - `renderSurveyResponses(list)` — yeni kolon yapısına uygun render
+  - `renderSurveyPagination(meta, current)` — sayfa butonları
+  - `saveSurveySettings()` — anket enable/disable + mesaj şablonu kaydetme
+
+### Nasıl Kullanılır
+1. **Admin → Anketler → Anket Ayarları** → "Anketi Etkinleştir" toggle'ını aç → Kaydet
+2. **Arıza Kayıtları** → Herhangi bir arıza → Durum → ÇÖZÜMLENDI yap
+3. Müşteri WhatsApp'ına otomatik anket gönderilir
+4. Müşteri 1 veya 2 yazarak adım adım cevaplar, son adımda serbest yorum yazar
+5. **Admin → Anketler** sayfasından müşteri bazlı filtreleyerek sonuçları görüntüle
+
+---
+
+## 2026-04-14 — Güvenli Kayıt ve Yedekleme
 
 ### Yapilanlar
 - Konusma ozeti proje icine kaydedildi: `docs/konusma-kaydi-2026-04-14.md`

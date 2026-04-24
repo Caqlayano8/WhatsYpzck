@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>WhatsYpzck - QR Kod</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="30">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: #f0f2f5; font-family: Arial, sans-serif; }
+        .qr-box { background: #fff; padding: 40px 32px; border-radius: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.10); text-align: center; max-width: 400px; width: 90%; }
+        .qr-box h2 { color: #111; font-size: 1.3em; margin-bottom: 12px; }
+        .qr-box p { color: #555; font-size: 0.95em; margin-bottom: 24px; line-height: 1.5; }
+        .qr-box img { width: 280px; height: 280px; border-radius: 8px; border: 1px solid #eee; }
+        .qr-box .waiting { font-size: 1em; color: #888; margin-top: 20px; }
+        .footer { color: #aaa; font-size: 0.85em; margin-top: 28px; }
+        .badge { display: inline-block; background: #25D366; color: #fff; border-radius: 8px; padding: 4px 14px; font-size: 0.85em; margin-bottom: 18px; }
+    </style>
+</head>
+<body>
+    <div class="qr-box">
+        <span class="badge">WhatsApp</span>
+        <h2>WhatsApp ile Bağlan</h2>
+        <p>WhatsApp uygulamasını açın, <strong>Bağlı Cihazlar</strong> &gt; <strong>Cihaz Ekle</strong> seçeneğine gidin ve aşağıdaki QR kodu tarayın.</p>
+        <% if (qrImageBase64 && qrImageBase64.length > 0) { %>
+            <img src="<%= qrImageBase64 %>" alt="WhatsApp QR Kod" />
+            <div class="waiting">QR kod 30 saniyede bir otomatik yenilenir.</div>
+        <% } else { %>
+            <div class="waiting">⏳ QR kodu hazırlanıyor, lütfen bekleyin...<br>Sayfa otomatik yenilenecek.</div>
+        <% } %>
+    </div>
+    <div class="footer">WhatsYpzck &copy; 2026</div>
+</body>
+</html>

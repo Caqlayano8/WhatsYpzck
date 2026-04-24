@@ -3,10 +3,10 @@ async function loadContacts(page = 1) {
   const AS = window.AdminState;
   AS.contactsPage = page;
   try {
-    let url = `/crm/contacts?page=${page}&limit=20&search=${encodeURIComponent(AS.contactsSearch)}`;
-    if (AS.contactViewMode === 'blocked')  url += '&showBlocked=true';
-    if (AS.contactViewMode === 'archived') url += '&showArchived=true';
+    const mode = AS.contactViewMode || 'all';
+    let url = `/crm/contacts?page=${page}&limit=20&search=${encodeURIComponent(AS.contactsSearch)}&viewMode=${encodeURIComponent(mode)}`;
     const { data, meta } = await apiFetch(url);
+    AS.contacts = data;
     renderContacts(data);
     renderPagination(meta, loadContacts, 'contacts-pagination');
     document.getElementById('contacts-start').textContent = meta.total ? (meta.page - 1) * meta.limit + 1 : 0;
@@ -38,7 +38,7 @@ function renderContacts(contacts) {
   const tbody = document.getElementById('contacts-table-body');
   tbody.innerHTML = '';
   if (!contacts.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-10 text-center text-sm text-gray-400">Kişi bulunamadı</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-10 text-center text-sm text-gray-400">Kişi bulunamadı</td></tr>`;
     return;
   }
   contacts.forEach(c => {
@@ -47,11 +47,15 @@ function renderContacts(contacts) {
     ).join(' ');
     const blockedBadge  = c.blocked  ? `<span class="ml-1 text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">Engellendi</span>`  : '';
     const archivedBadge = c.archived ? `<span class="ml-1 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">Arşivlendi</span>` : '';
+    const fullName = [c.name, c.lastName].filter(Boolean).join(' ') || c.pushName || '—';
+    const displayName = maskName(fullName);
+    const addressText = c.address ? `<span class="text-gray-600 text-xs">${escHtml(c.address)}</span>` : `<span class="text-gray-300 text-xs">—</span>`;
     const tr = document.createElement('tr');
     tr.className = 'trow';
     tr.innerHTML = `
-      <td class="px-5 py-3 text-sm text-gray-700 font-mono">${c.phoneNumber}</td>
-      <td class="px-5 py-3 text-sm text-gray-800 font-medium">${escHtml(c.name || c.pushName || '—')}${blockedBadge}${archivedBadge}</td>
+      <td class="px-5 py-3 text-sm text-gray-700 font-mono">${maskPhone(c.phoneNumber)}</td>
+      <td class="px-5 py-3 text-sm text-gray-800 font-medium">${escHtml(displayName)}${blockedBadge}${archivedBadge}</td>
+      <td class="px-5 py-3 text-sm max-w-xs" style="max-width:180px;white-space:normal;">${addressText}</td>
       <td class="px-5 py-3">${langBadge(c.detectedLanguage)}</td>
       <td class="px-5 py-3">
         <div class="flex flex-wrap gap-1 items-center">
@@ -65,7 +69,11 @@ function renderContacts(contacts) {
       <td class="px-5 py-3 text-sm text-gray-500">${fmtDate(c.lastInteraction)}</td>
       <td class="px-5 py-3">
         <div class="flex items-center gap-1">
-          <button onclick="openMessageModal('${c.phoneNumber}', '${escHtml(c.name || c.pushName || c.phoneNumber)}')"
+          <button onclick="openContactEditModal(${JSON.stringify(c).replace(/"/g, '&quot;')})" data-contact-id="${c._id}"
+            title="Kişiyi Düzenle" class="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors text-xs">
+            <i class="fas fa-user-edit"></i>
+          </button>
+          <button onclick="openMessageModal('${c.phoneNumber}', '${escHtml(fullName)}')"
             title="Mesaj gönder" class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors text-xs">
             <i class="fas fa-paper-plane"></i>
           </button>
@@ -216,3 +224,100 @@ window.toggleArchive = async function (contactId) {
     showToast('Kişi güncellenemedi', 'error');
   }
 };
+
+// ── Rehber (Contact Edit) Modal ────────────────────────────────────────────
+window.openContactEditModal = function (contact) {
+  document.getElementById('contact-edit-id').value       = contact._id;
+  document.getElementById('contact-edit-name').value     = contact.name     || '';
+  document.getElementById('contact-edit-lastname').value = contact.lastName  || '';
+  document.getElementById('contact-edit-phone').value    = contact.phoneNumber || '';
+  document.getElementById('contact-edit-address').value  = contact.address   || '';
+  document.getElementById('contact-edit-modal').classList.remove('hidden');
+};
+
+window.closeContactEditModal = function () {
+  document.getElementById('contact-edit-modal').classList.add('hidden');
+};
+
+window.saveContactEdit = async function () {
+  const AS = window.AdminState;
+  const id       = document.getElementById('contact-edit-id').value;
+  const name     = document.getElementById('contact-edit-name').value.trim();
+  const lastName = document.getElementById('contact-edit-lastname').value.trim();
+  const address  = document.getElementById('contact-edit-address').value.trim();
+  try {
+    await apiFetch(`/crm/contacts/${id}`, 'PUT', { name, lastName, address });
+    showToast('Kişi bilgileri kaydedildi ✓', 'success');
+    closeContactEditModal();
+    loadContacts(AS.contactsPage);
+  } catch {
+    showToast('Kayıt başarısız', 'error');
+  }
+};
+
+// Manuel kişi ekleme
+window.openAddContactModal = function () {
+  document.getElementById('add-contact-phone').value   = '';
+  document.getElementById('add-contact-name').value    = '';
+  document.getElementById('add-contact-lastname').value = '';
+  document.getElementById('add-contact-address').value = '';
+  document.getElementById('add-contact-modal').classList.remove('hidden');
+};
+
+window.closeAddContactModal = function () {
+  document.getElementById('add-contact-modal').classList.add('hidden');
+};
+
+window.saveNewContact = async function () {
+  const phone    = document.getElementById('add-contact-phone').value.trim();
+  const name     = document.getElementById('add-contact-name').value.trim();
+  const lastName = document.getElementById('add-contact-lastname').value.trim();
+  const address  = document.getElementById('add-contact-address').value.trim();
+  if (!phone) { showToast('Telefon numarası zorunludur', 'warning'); return; }
+  try {
+    await apiFetch('/crm/contacts', 'POST', { phoneNumber: phone, name, lastName, address });
+    showToast('Kişi eklendi', 'success');
+    closeAddContactModal();
+    loadContacts(1);
+  } catch (err) {
+    showToast(err.message || 'Kişi eklenemedi', 'error');
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = document.getElementById('contact-add-btn');
+  if (addBtn && !addBtn.dataset.boundContactAdd) {
+    addBtn.addEventListener('click', () => window.openAddContactModal());
+    addBtn.dataset.boundContactAdd = '1';
+  }
+
+  const addSaveBtn = document.getElementById('add-contact-save-btn');
+  if (addSaveBtn && !addSaveBtn.dataset.boundContactSave) {
+    addSaveBtn.addEventListener('click', () => window.saveNewContact());
+    addSaveBtn.dataset.boundContactSave = '1';
+  }
+
+  const editSaveBtn = document.getElementById('contact-edit-save-btn');
+  if (editSaveBtn && !editSaveBtn.dataset.boundContactEditSave) {
+    editSaveBtn.addEventListener('click', () => window.saveContactEdit());
+    editSaveBtn.dataset.boundContactEditSave = '1';
+  }
+
+  const tbody = document.getElementById('contacts-table-body');
+  if (tbody && !tbody.dataset.boundContactTable) {
+    tbody.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const editBtn = target.closest('button[data-contact-id]');
+      if (!editBtn) return;
+
+      event.preventDefault();
+      const contactId = editBtn.getAttribute('data-contact-id');
+      const contact = (window.AdminState?.contacts || []).find((item) => item._id === contactId);
+      if (contact) window.openContactEditModal(contact);
+    });
+    tbody.dataset.boundContactTable = '1';
+  }
+});
+

@@ -31,6 +31,8 @@ Source: "..\package.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\package-lock.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\.env.example"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\tsconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\docs\WhatsYpzck-Kurulum-ve-Deployment-Rehberi.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\docs\Kurulum-Yonergesi.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\esbuild.config.js"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ecosystem.config.js"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion

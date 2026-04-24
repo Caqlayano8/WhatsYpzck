@@ -60,6 +60,7 @@ function renderChatList(list, isSearchMode) {
     const phone    = item.phoneNumber;
     const contact  = item.contact;
     const name     = contact?.name || contact?.pushName || phone;
+    const maskedName = maskName(name);
     const color    = avatarColor(name);
     const initials = avatarInitials(name);
     const preview  = item.lastMessage || (item.messages?.[item.messages.length - 1]?.body) || '—';
@@ -77,7 +78,7 @@ function renderChatList(list, isSearchMode) {
       <div class="conv-avatar" style="background:${color};">${initials}</div>
       <div class="flex-grow min-w-0">
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-semibold text-gray-900 truncate">${escHtml(name)}</span>
+          <span class="text-sm font-semibold text-gray-900 truncate">${escHtml(maskedName)}</span>
           <span class="text-xs text-gray-400 flex-shrink-0">${fmtMsgTime(ts)}</span>
         </div>
         <div class="flex items-center justify-between gap-1 mt-0.5">
@@ -93,7 +94,7 @@ function renderChatList(list, isSearchMode) {
 window.openConversation = async function (phone, contact = null) {
   const AS = window.AdminState;
   AS.currentInboxPhone = phone;
-  setChatHeader(phone, contact?.name || contact?.pushName || phone);
+  setChatHeader(phone, maskName(contact?.name || contact?.pushName || phone));
   document.querySelectorAll('#chats-list .conv-item').forEach(d =>
     d.classList.toggle('active', d.dataset.phone === phone));
   try {
@@ -113,7 +114,7 @@ function openSearchThread(thread) {
   const AS = window.AdminState;
   AS.currentInboxPhone = thread.phoneNumber;
   const name = thread.contact?.name || thread.contact?.pushName || thread.phoneNumber;
-  setChatHeader(thread.phoneNumber, name);
+  setChatHeader(thread.phoneNumber, maskName(name));
   document.querySelectorAll('#chats-list .conv-item').forEach(d =>
     d.classList.toggle('active', d.dataset.phone === thread.phoneNumber));
   renderMsgList(thread.messages, 'chat-messages');
@@ -125,7 +126,7 @@ function setChatHeader(phone, displayName) {
   const avatar   = document.getElementById('chat-header-avatar');
   if (avatar) { avatar.textContent = initials; avatar.style.background = color; }
   document.getElementById('chat-phone-label').textContent = displayName;
-  document.getElementById('chat-contact-name').textContent = displayName !== phone ? phone : '';
+  document.getElementById('chat-contact-name').textContent = displayName !== phone ? maskPhone(phone) : '';
   document.getElementById('chat-header').classList.remove('hidden');
   document.getElementById('chat-reply-box').classList.remove('hidden');
   const empty = document.getElementById('chat-empty');

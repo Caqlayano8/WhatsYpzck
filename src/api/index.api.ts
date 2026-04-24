@@ -7,6 +7,7 @@ import express from "express";
 import logger from "../configs/logger.config";
 import { BotManager } from "../bot.manager";
 import crmRouter from "../crm/api/crm.api";
+import QRCode from "qrcode";
 
 const router = express.Router();
 
@@ -57,7 +58,7 @@ export default function (botManager: BotManager) {
         });
     });
 
-    router.get("/qr", (req, res) => {
+    router.get("/qr", async (req, res) => {
         logger.info("GET /qr");
         const qrState = getEffectiveQrState();
 
@@ -65,9 +66,19 @@ export default function (botManager: BotManager) {
             return res.redirect("/status");
         }
 
+        let qrImageBase64 = "";
+        if (qrState.qrCodeData) {
+            try {
+                qrImageBase64 = await QRCode.toDataURL(qrState.qrCodeData, { width: 300, margin: 2 });
+            } catch (e) {
+                logger.error("QR kod üretilemedi: " + e);
+            }
+        }
+
         res.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
         res.render("qr", {
             qrCodeData: qrState.qrCodeData,
+            qrImageBase64,
         });
     });
 

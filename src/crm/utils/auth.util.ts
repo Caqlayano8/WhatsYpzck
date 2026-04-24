@@ -132,8 +132,9 @@ export class AuthService {
       }
     }
 
+    const allowedSessions = (user as any).allowedSessions || [];
     const token = jwt.sign(
-      { userId: String(user._id), role: user.role, username: user.username, _id: String(user._id), permissions: effectivePerms },
+      { userId: String(user._id), role: user.role, username: user.username, _id: String(user._id), permissions: effectivePerms, allowedSessions },
       EnvConfig.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '2h' }
     );
@@ -146,6 +147,7 @@ export class AuthService {
         displayName: user.displayName || user.username,
         role: user.role,
         permissions: effectivePerms,
+        allowedSessions,
       }
     };
   }
@@ -185,8 +187,9 @@ export class AuthService {
       const k = key as keyof typeof defaults;
       effectivePerms[k] = (overrides as any)[k] !== undefined ? (overrides as any)[k] : defaults[k];
     }
+    const allowedSessions2fa = (user as any).allowedSessions || [];
     const token = jwt.sign(
-      { userId: String(user._id), role: user.role, username: user.username, _id: String(user._id), permissions: effectivePerms },
+      { userId: String(user._id), role: user.role, username: user.username, _id: String(user._id), permissions: effectivePerms, allowedSessions: allowedSessions2fa },
       EnvConfig.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '2h' }
     );
@@ -198,6 +201,7 @@ export class AuthService {
         displayName: user.displayName || user.username,
         role: user.role,
         permissions: effectivePerms,
+        allowedSessions: allowedSessions2fa,
       }
     };
   }

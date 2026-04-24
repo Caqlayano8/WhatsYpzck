@@ -96,7 +96,8 @@ export class AppConfig {
         return [
             MessageTypes.TEXT,
             MessageTypes.IMAGE,
-            MessageTypes.LOCATION
+            MessageTypes.LOCATION,
+            MessageTypes.VOICE
         ]
     }
 

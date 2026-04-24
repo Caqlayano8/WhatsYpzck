@@ -101,8 +101,8 @@ function renderLeaderboard(contacts) {
     tr.className = 'trow';
     tr.innerHTML = `
       <td class="px-4 py-2.5 text-sm font-bold text-gray-500">${i + 1}</td>
-      <td class="px-4 py-2.5 text-sm text-gray-800">${escHtml(c.name || c.pushName || '—')}</td>
-      <td class="px-4 py-2.5 text-xs font-mono text-gray-600">${c.phoneNumber}</td>
+      <td class="px-4 py-2.5 text-sm text-gray-800">${escHtml(maskName(c.name || c.pushName || '—'))}</td>
+      <td class="px-4 py-2.5 text-xs font-mono text-gray-600">${escHtml(maskPhone4(c.phoneNumber))}</td>
       <td class="px-4 py-2.5 text-sm font-bold text-indigo-600">${c.score || 0}</td>
     `;
     tbody.appendChild(tr);

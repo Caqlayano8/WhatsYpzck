@@ -46,7 +46,7 @@
 </head>
 <body>
   <h1>WhatsYpzck Full Kurulum Yönergesi (Windows)</h1>
-  <p><strong>Versiyon:</strong> 2.0.0 | <strong>Tarih:</strong> 13.03.2026</p>
+  <p><strong>Versiyon:</strong> 2.1.0 | <strong>Tarih:</strong> 16.04.2026</p>
 
   <h2>1) Dağıtım Paketleri</h2>
   <ul>
@@ -128,5 +128,28 @@
 
   <h2>9) Destek</h2>
   <p>Kurumsal devreye alma için önerilen süreç: Pilot ortam, güvenlik doğrulaması, canlı geçiş, 2 haftalık izleme.</p>
+
+  <hr style="margin:24px 0;">
+  <h2>🆕 v2.1.0 — Yeni Özellikler (16 Nisan 2026)</h2>
+
+  <h3 style="color:#0b2a4a;margin-top:14px;">Multi-Step Memnuniyet Anketi</h3>
+  <div class="box">
+    <p>Arıza <strong>ÇÖZÜMLENDI</strong> statüsüne alınınca müşteriye WhatsApp üzerinden 3 adımlı anket gönderilir:</p>
+    <table>
+      <tr><th>Adım</th><th>Bot Sorusu</th><th>Beklenen Yanıt</th></tr>
+      <tr><td>1</td><td>Probleminiz çözüldü mü?</td><td>1 = Evet &nbsp;/&nbsp; 2 = Hayır</td></tr>
+      <tr><td>2</td><td>Teknisyen ile iletişimden memnun kaldınız mı?</td><td>1 = Evet &nbsp;/&nbsp; 2 = Hayır</td></tr>
+      <tr><td>3</td><td>Belirtmek istediğiniz başka bir konu var mı?</td><td>Serbest metin veya "Hayır"</td></tr>
+    </table>
+    <p style="margin-top:8px;"><span class="ok">Aktifleştirme:</span> Admin Panel → Anketler → Anket Ayarları → "Anketi Etkinleştir" → Kaydet</p>
+    <p><span class="ok">Sonuçları görme:</span> Admin Panel → Anketler → Müşteri telefonu veya Arıza No ile filtreleyin</p>
+  </div>
+
+  <h3 style="color:#0b2a4a;margin-top:14px;">Manuel Kişi Ekleme</h3>
+  <div class="box">
+    <p><strong>Admin Panel → Kişiler → "Kişi Ekle" butonu</strong></p>
+    <p>Telefon numarası (ülke kodu dahil, örn: <code>905551234567</code>), ad, soyad, adres girerek sisteme yeni kişi eklenebilir.</p>
+    <p><span class="warn">Not:</span> Numara zaten kayıtlıysa sistem hata mesajı gösterir.</p>
+  </div>
 </body>
 </html>

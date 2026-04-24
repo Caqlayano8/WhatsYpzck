@@ -19,6 +19,20 @@ const settingsSchema = new mongoose.Schema({
         enum: ['chat', 'gpt', 'claude'],
         default: 'chat'
     },
+    ollamaAssistant: {
+        enabled: {
+            type: Boolean,
+            default: false
+        },
+        outsideFlowShortReplyEnabled: {
+            type: Boolean,
+            default: false
+        },
+        maxReplyChars: {
+            type: Number,
+            default: 240
+        }
+    },
     disabledCommands: {
         type: [String],
         default: []
@@ -45,6 +59,14 @@ const settingsSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    maskPhoneNumbers: {
+        type: Boolean,
+        default: true
+    },
+    maskContactNames: {
+        type: Boolean,
+        default: true
+    },
     smtp: {
         host:     { type: String, default: '' },
         port:     { type: Number, default: 587 },
@@ -67,7 +89,7 @@ const settingsSchema = new mongoose.Schema({
     notificationTemplates: {
         institutionName: {
             type: String,
-            default: 'Coruh EDAS Artvin Il Mudurlugu'
+            default: 'Kurum Bilgi Sistemi'
         },
         signatureName: {
             type: String,
@@ -135,6 +157,30 @@ const settingsSchema = new mongoose.Schema({
             type: String,
             default: 'Talep No: {{incidentId}}\nSizin isteginiz uzere talebiniz mudahale edilmeden kapatilmistir.\nBizi tercih ettiginiz icin tesekkur ederiz. Gorusmek uzere.'
         },
+        personalizedMenuMessage: {
+            type: String,
+            default: 'Hos geldiniz, *{{firstName}}* 👋 Size hemen yardimci olabilirim.\n\nSize nasil yardimci olabilecegimi secin:\n\n1️⃣ *Ariza veya sorun bildirmek istiyorum*\n2️⃣ *Mevcut talebimin durumunu ogrenmek istiyorum*\n\nLutfen *1* veya *2* yazin.'
+        },
+        infoRedirectMessage: {
+            type: String,
+            default: 'Bu konuda size en dogru bilgiyi verebilmesi icin sizi canli bir temsilcimize yonlendirebiliriz. 🎧\n\nMusteri hizmetlerimize ulasmak icin:\n☎️ *186*\'yi arayabilirsiniz.\n🕐 7/24 hizmetinizdeyiz.\n\nIsterseniz su an *186*\'yi arayarak bir temsilcimizle gorusebilirsiniz. Sorununuz en kisa surede cozume kavusturulacaktir. 🙏\n\nElektrik arizasi veya mevcut talebinizle ilgili bir islem icin ise size hemen yardimci olabilirim.'
+        },
+        unknownQuestionMessage: {
+            type: String,
+            default: 'Uzgunuz, bu konuda size yardimci olamiyorum. 🙏\n\nDaha fazla bilgi icin *186*\'yi arayabilirsiniz. ☎️\n\nAncak asagidaki konularda size hemen yardimci olabilirim:\n⚡ *1. Ariza Bildirimi* — Elektrik kesintisi veya ariza kaydi olusturma\n📋 *2. Talep Durumu* — Mevcut ariza kaydinizin durumunu sorgulama\n❌ *3. Talep Iptali* — Acik talebinizi iptal etme\n\nBunlardan biri icin yardim almak ister misiniz?'
+        },
+        noEmailFallbackMessage: {
+            type: String,
+            default: 'E-posta bilginizin olmadigini belirttiniz. Iletisim icin telefon numaraniz kullanilacaktir.'
+        },
+        incidentCreatedSuccessMessage: {
+            type: String,
+            default: 'Tesekkur ederiz. Kaydiniz olusturuldu ve ilgili numaraya/eposta adresine gonderildi.'
+        },
+        incidentCreatedDispatchFailedMessage: {
+            type: String,
+            default: 'Kaydiniz olusturuldu ancak su an yonlendirme yapilamadi. Sistem ayarlari kontrol edilmelidir.'
+        },
         chatMediaPreviewText: {
             type: String,
             default: 'Fotograf gonderildi'
@@ -148,6 +194,18 @@ const settingsSchema = new mongoose.Schema({
         enabled: { type: Boolean, default: false },
         message: { type: String,  default: '' },
         endsAt:  { type: Date,    default: null },
+    },
+    survey: {
+        enabled: { type: Boolean, default: false },
+        triggerStatus: { type: String, default: 'COZUMLENDI,KAPATILDI' },
+        message: {
+            type: String,
+            default: 'Sayin {{customerName}},\n\nAriza kaydınız ({{incidentId}}) cozumlendi. Hizmetimizi degerlendirmenizi rica ederiz.\n\n1️⃣ - Cok Kotü\n2️⃣ - Kotü\n3️⃣ - Orta\n4️⃣ - Iyi\n5️⃣ - Cok Iyi\n\nLütfen 1-5 arasında bir puan gönderin.'
+        },
+        thankYouMessage: {
+            type: String,
+            default: 'Degerlendirmeniz için tesekkür ederiz! Geri bildiriminiz bizim için çok değerli.'
+        },
     },
 }, {
     timestamps: true
